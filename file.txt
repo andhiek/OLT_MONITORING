@@ -1,0 +1,66 @@
+Struktut folder 
+
+
+🏗 STRUKTUR PROJECT FINAL (VERSI BERSIH)
+
+Buat folder baru:
+
+fiber-monitor/
+
+
+Di dalamnya:
+
+fiber-monitor/
+│
+├── app/
+│   ├── core/
+│   │   ├── config.py
+│   │   └── scheduler.py
+│   │
+│   ├── snmp/
+│   │   ├── collector.py
+│   │   └── parser.py
+│   │
+│   ├── telegram/
+│   │   ├── bot.py
+│   │   └── handlers.py
+│   │
+│   ├── services/
+│   │   ├── monitoring.py
+│   │   └── alarm.py
+│   │
+│   ├── database/
+│   │   ├── models.py
+│   │   ├── connection.py
+│   │   └── repository.py
+│   │
+│   └── main.py
+|   |    
+├── simulator/
+│   └── zte_mock.py
+│
+├── requirements.txt
+└── README.md
+
+🧠 Kenapa Dipisah Begini?
+
+Supaya nanti:
+
+Mau ganti simulator → tinggal ganti snmp/collector.py
+
+Mau tambah dashboard → tinggal tambah folder api/
+
+Mau tambah multi OLT → tinggal extend services/
+
+Mau deploy Docker → tinggal buat dockerfile
+
+Ini mindset engineer production. " ini yang kamu berikan ke saya tadi" terakhir kita sudah buat file app/main.py from app.database.connection import engine
+from app.database.models import Base
+from app.telegram.bot import start_bot
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+if __name__ == "__main__":
+    init_db()
+    start_bot()
