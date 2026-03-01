@@ -9,15 +9,15 @@ from app.snmp.zte_c320 import ZTEC320
 
 load_dotenv()
 
-
 class MonitoringService:
+    _simulators = {}
 
     def __init__(self, olt):
         """
         olt adalah object dari database (model OLT)
         """
         mode = os.getenv("MODE", "simulator")
-
+        
         if mode == "real":
             self.device = ZTEC320(
                 host=olt.host,
@@ -25,7 +25,10 @@ class MonitoringService:
             )
             print(f"🔵 Running REAL OLT: {olt.name} ({olt.host})")
         else:
-            self.device = ZTESimulator()
+            if olt.id not in self._simulators:
+                self._simulators[olt.id] = ZTESimulator()
+                
+            self.device = self._simulators[olt.id]
             print(f"🟢 Running SIMULATOR for {olt.name}")
 
     async def get_status(self):

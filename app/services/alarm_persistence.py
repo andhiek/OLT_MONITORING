@@ -70,13 +70,19 @@ async def resolve_alarm(olt, onu_id, alarm_type):
             alarm.resolved_at = datetime.utcnow()
 
             await session.commit()
-            return alarm.id
+            await session.refresh(alarm)
+
+            # hitung durasi
+            duration = alarm.resolved_at - alarm.created_at
+
+            return {
+                "duration": str(duration).split(".")[0],
+                "acknowledged_by": alarm.acknowledged_at
+            }
 
         except Exception:
             await session.rollback()
             raise
-
-
 # ==========================================================
 # ACKNOWLEDGE ALARM
 # ==========================================================

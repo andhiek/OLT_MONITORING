@@ -79,6 +79,7 @@ async def process_olt(bot, olt):
     # Telegram Notification
     if alerts and olt.client.telegram_chat_id:
         for alert in alerts:
+            
             try:
                 text = format_telegram_message(olt.name, alert)
                 keyboard = None
@@ -94,6 +95,26 @@ async def process_olt(bot, olt):
                         "ONU_OFFLINE",
                         alert["message"]
                     )
+                elif alert["event"] == "ONU_ONLINE":
+
+                    onu_uuid = onu_mapping.get(alert.get("onu_index"))
+
+                    resolved = await resolve_alarm(
+                        olt,
+                        onu_uuid,
+                        "ONU_OFFLINE"
+                    )
+
+                    if resolved:
+                        text += f"\nDuration: {resolved['duration']}"
+
+                        if resolved["acknowledged_by"]:
+                            text += f"\nHandled by: {resolved['acknowledged_by']}"
+
+                        await bot.send_message(
+                            olt.client.telegram_chat_id,
+                            text
+                        )
 
                 if alarm_id:
                     keyboard = InlineKeyboardMarkup(
@@ -106,12 +127,14 @@ async def process_olt(bot, olt):
                             ]
                         ]
                     )
+                    
 
-                await bot.send_message(
-                    olt.client.telegram_chat_id,
-                    text,
-                    reply_markup=keyboard
-                )
+                    await bot.send_message(
+                        olt.client.telegram_chat_id,
+                        text,
+                        reply_markup=keyboard
+                    )
+                    print("Sending alarm for ONU", alarm_id)
 
             except Exception as e:
                 print(f"Telegram error ({olt.name}): {e}")
