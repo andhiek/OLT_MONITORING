@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer
+
 
 from app.db.base import Base
 
@@ -76,4 +78,21 @@ class Alarm(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id"),
         nullable=True
+    )
+    
+
+    # ==============================
+    # SEVERITY & ESCALATION
+    # ==============================
+
+    severity: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="medium"
+    )
+
+    escalation_level: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0
     )
