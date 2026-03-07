@@ -7,8 +7,8 @@ from app.core.config import BOT_TOKEN
 from app.telegram.handlers import router
 from app.core.scheduler import monitoring_loop
 
-def start_bot():
-    asyncio.run(_run())
+async def start_bot():
+    await _run()
     
     
 

@@ -3,8 +3,7 @@
 
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from sqlalchemy.sql import func
-from .connection import Base
-
+from app.db.base import Base
 
 class ONUStatus(Base):
     __tablename__ = "onu_status"

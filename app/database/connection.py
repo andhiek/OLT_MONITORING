@@ -1,20 +1,30 @@
 ## ========= connection.py ==========
 
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker,declarative_base
 
-DATABASE_URL = "postgresql://noc_user:capung21@localhost/noc_saas"
+DATABASE_URL = "postgresql+asyncpg://noc_user:capung21@localhost:5432/noc_saas"
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+engine = create_async_engine(DATABASE_URL, echo=False)
+
+SessionLocal = sessionmaker(
+    Bind = engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+Base = declarative_base()
 
 
 
-if __name__ == "__main__":
+async def test_connection():
     try:
-        conn = engine.connect()
+        conn = await engine.connect()
         print("✅ Database connected successfully!")
-        conn.close()
+        await conn.close()
     except Exception as e:
         print("❌ Connection failed:", e)
+
+if __name__ == "__main__":
+    asyncio.run(test_connection())
