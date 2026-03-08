@@ -50,7 +50,10 @@ async def fallback_handler(message: Message):
     
 @router.callback_query(F.data.startswith("ack:"))
 async def handle_ack(callback: CallbackQuery):
+    
     alarm_id = callback.data.split(":")[1] if callback.data else None
+    
+    print("ACK pressed by:", callback.from_user.first_name)
 
     success = await acknowledge_alarm(alarm_id,user = callback.from_user)
 
@@ -60,7 +63,7 @@ async def handle_ack(callback: CallbackQuery):
         # Hapus tombol jika message bisa diedit
         if isinstance(callback.message, Message):
             await callback.message.edit_reply_markup(reply_markup=None)
-            await callback.message.answer("👤 Alarm sudah di-ACK oleh operator.")
+            await callback.message.answer(f"👤 Alarm sudah di-ACK oleh {callback.from_user.first_name}")
         
     else:
         await callback.answer("Alarm sudah di-ack atau tidak ditemukan ❌")

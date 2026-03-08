@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.db.models.alarm import Alarm
@@ -31,6 +32,8 @@ async def create_alarm(olt, onu_id, alarm_type, message):
                 onu_id=onu_id,
                 type=alarm_type,
                 message=message,
+                severity="CRITICAL",
+                escalation_level=1,
                 is_resolved=False,
                 created_at=datetime.utcnow()
             )
@@ -76,9 +79,9 @@ async def resolve_alarm(olt, onu_id, alarm_type):
             duration = alarm.resolved_at - alarm.created_at
 
             return {
-                "duration": str(duration).split(".")[0],
-                "acknowledged_by": alarm.acknowledged_at
-            }
+                    "duration": str(duration).split(".")[0],
+                    "acknowledged_by": alarm.acknowledged_name
+                }
 
         except Exception:
             await session.rollback()
@@ -93,22 +96,23 @@ async def acknowledge_alarm(alarm_id, user):
 
             if not alarm:
                 return False
-            
-            
+
             if alarm.is_resolved:
                 return {"status": "ALREADY_RESOLVED"}
 
             if alarm.acknowledged_at:
-                return False 
+                return False
 
-        
-            
+            # ambil nama operator dari Telegram
+            name = user.first_name or user.username or "Operator"
+
             alarm.acknowledged_at = datetime.utcnow()
+            alarm.acknowledged_name = name
 
             await session.commit()
 
             return True
-        
+
         except Exception:
             await session.rollback()
             raise

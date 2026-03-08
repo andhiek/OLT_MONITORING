@@ -138,20 +138,32 @@ async def process_olt(bot, olt):
 
             except Exception as e:
                 print(f"Telegram error ({olt.name}): {e}")
+ 
 # ===============================
 # Main Monitoring Loop
 # ===============================
 async def monitoring_loop(bot):
 
     while True:
+
+        print("---- MONITORING CYCLE ----", datetime.now())
+
         olts = await get_active_olts()
+
+        if not olts:
+            print("No active OLT configured")
+            await asyncio.sleep(30)
+            continue
 
         tasks = [
             process_olt(bot, olt)
             for olt in olts
         ]
 
-        # Jalankan semua OLT secara parallel
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results:
+            if isinstance(r, Exception):
+                print("Monitoring task error:", r)
 
         await asyncio.sleep(30)
