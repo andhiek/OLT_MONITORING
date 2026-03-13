@@ -7,6 +7,8 @@ from app.core.normalizer import normalize_onu
 from app.snmp.zte_simulator import ZTESimulator
 from app.snmp.zte_c320 import ZTEC320
 from app.services.alarm import AlarmService
+from app.core.delta import DeltaProcessor
+
 load_dotenv()
 
 class MonitoringService:
@@ -38,22 +40,24 @@ class MonitoringService:
             onu_list = await self.device.get_onu_list()
 
             normalized = [normalize_onu(o) for o in onu_list]
-            fiber_events = AlarmService.detect_fiber_cut(self.olt.id, normalized)
-            for e in fiber_events:
-                    print(
-                        f"🚨 FIBER CUT DETECTED | "
-                        f"PON {e['pon_port']} | "
-                        f"ONU DOWN {e['count']}"
-                    )
+            changed_onu = DeltaProcessor.filter_changed(
+                                                        self.olt.id,
+                                                        normalized
+                                                    )
+            print("TOTAL ONU:", len(normalized))
+            print("CHANGED ONU:", len(changed_onu))
+            print("CHANGED ONU:", changed_onu)
+            
             return {
-                "olt_status": olt_status,
-                "onu_list": normalized,
-                
-            }
+                        "olt_id": self.olt.id,
+                        "olt_status": olt_status,
+                        "onu_list": changed_onu
+                    }
 
         except Exception as e:
             return {
-                "olt_status": "ERROR",
-                "onu_list": [],
-                "error": str(e)
-            }
+                        "olt_id": self.olt.id,
+                        "olt_status": "ERROR",
+                        "onu_list": [],
+                        "error": str(e)
+                    }
