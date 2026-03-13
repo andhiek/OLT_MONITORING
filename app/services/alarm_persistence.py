@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.db.models.alarm import Alarm
+from app.core.severity import get_severity
 
 
 # ==========================================================
@@ -32,7 +33,7 @@ async def create_alarm(olt, onu_id, alarm_type, message):
                 onu_id=onu_id,
                 type=alarm_type,
                 message=message,
-                severity="CRITICAL",
+                severity=get_severity(alarm_type),
                 escalation_level=1,
                 is_resolved=False,
                 created_at=datetime.utcnow()

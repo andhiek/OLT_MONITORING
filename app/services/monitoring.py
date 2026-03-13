@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from app.core.normalizer import normalize_onu
 from app.snmp.zte_simulator import ZTESimulator
 from app.snmp.zte_c320 import ZTEC320
-
+from app.services.alarm import AlarmService
 load_dotenv()
 
 class MonitoringService:
@@ -16,6 +16,7 @@ class MonitoringService:
         """
         olt adalah object dari database (model OLT)
         """
+        self.olt = olt
         mode = os.getenv("MODE", "simulator")
         
         if mode == "real":
@@ -37,10 +38,17 @@ class MonitoringService:
             onu_list = await self.device.get_onu_list()
 
             normalized = [normalize_onu(o) for o in onu_list]
-
+            fiber_events = AlarmService.detect_fiber_cut(self.olt.id, normalized)
+            for e in fiber_events:
+                    print(
+                        f"🚨 FIBER CUT DETECTED | "
+                        f"PON {e['pon_port']} | "
+                        f"ONU DOWN {e['count']}"
+                    )
             return {
                 "olt_status": olt_status,
                 "onu_list": normalized,
+                
             }
 
         except Exception as e:

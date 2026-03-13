@@ -15,9 +15,14 @@ class ZTESimulator(OLTDevice):
         self.onu_state = {}
 
         for i in range(1, self.ONU_TOTAL + 1):
+
+            # Mapping ONU ke PON port
+            pon_port = f"1/1/{((i-1)//4)+1}"
+
             self.onu_state[i] = {
                 "status": "ONLINE",
-                "power": round(random.uniform(-24, -20), 2)
+                "power": round(random.uniform(-24, -20), 2),
+                "pon_port": pon_port
             }
 
     async def get_olt_status(self):
@@ -51,10 +56,11 @@ class ZTESimulator(OLTDevice):
                 state["power"] = max(-35, min(-15, state["power"]))
 
             onu_list.append({
-                "id": i,
-                "status": state["status"],
-                "power": state["power"]
-            })
+                            "id": i,
+                            "status": state["status"],
+                            "power": state["power"],
+                            "pon_port": state["pon_port"]
+                        })
 
         return onu_list
 

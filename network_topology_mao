@@ -1,0 +1,9 @@
+CORE
+ │
+ ├── AGG SWITCH
+ │     │
+ │     └── OLT
+ │            │
+ │         SPLITTER
+ │        /   |   \
+ │      ONU  ONU  ONU
