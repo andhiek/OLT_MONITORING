@@ -5,6 +5,8 @@ from sqlalchemy import pool
 
 from alembic import context
 import app.db.models.alarm
+from app.db.base import Base
+from app.db.models import *
 # tambahkan model lain juga
 
 # this is the Alembic Config object, which provides
