@@ -31,9 +31,15 @@ class AlarmService:
 
         if prev_olt_status and prev_olt_status != olt_status:
             if olt_status != "ONLINE":
-                alerts.append("🚨 OLT OFFLINE!")
+                alerts.append({
+                                "event": "OLT_OFFLINE",
+                                "message": "🚨 OLT OFFLINE!"
+                            })
             else:
-                alerts.append("✅ OLT BACK ONLINE")
+                alerts.append({
+                                "event": "OLT_RECOVERED",
+                                "message": "✅ OLT BACK ONLINE"
+                            })
 
         olt_state["olt_status"] = olt_status
 
@@ -135,6 +141,43 @@ class AlarmService:
 
         alerts.extend(fiber_events)
 
+            # =============================
+            # ROOT CAUSE FILTER
+            # =============================
+        fiber_ports = {
+                e["pon_port"]
+                for e in fiber_events
+                if e["event"] == "FIBER_CUT"
+            }
+
+        if fiber_ports:
+
+                filtered = []
+
+                for a in alerts:
+
+                    if isinstance(a, dict):
+
+                        # skip ONU alarms jika fiber cut
+                        if a.get("event") in ["ONU_OFFLINE", "ONU_LOW_POWER"]:
+
+                            pon = next(
+                                (
+                                    o["pon_port"]
+                                    for o in data["onu_list"]
+                                    if str(o["id"]) == a["onu_index"]
+                                ),
+                                None
+                            )
+
+                            if pon in fiber_ports:
+                                continue
+
+                    filtered.append(a)
+
+                alerts = filtered
+                    
+
         return alerts
 
 
@@ -206,3 +249,5 @@ class AlarmService:
                     olt_fiber[port] = "NORMAL"
 
         return events
+
+    

@@ -1,6 +1,5 @@
 # ======== app/services/monitoring.py =========
 
-
 import os
 from dotenv import load_dotenv
 from app.core.normalizer import normalize_onu
@@ -20,7 +19,7 @@ class MonitoringService:
         """
         self.olt = olt
         mode = os.getenv("MODE", "simulator")
-        
+
         if mode == "real":
             self.device = ZTEC320(
                 host=olt.host,
@@ -30,7 +29,7 @@ class MonitoringService:
         else:
             if olt.id not in self._simulators:
                 self._simulators[olt.id] = ZTESimulator()
-                
+
             self.device = self._simulators[olt.id]
             print(f"🟢 Running SIMULATOR for {olt.name}")
 
@@ -40,24 +39,40 @@ class MonitoringService:
             onu_list = await self.device.get_onu_list()
 
             normalized = [normalize_onu(o) for o in onu_list]
+
+            # Delta hanya untuk debug / efisiensi
             changed_onu = DeltaProcessor.filter_changed(
-                                                        self.olt.id,
-                                                        normalized
-                                                    )
+                self.olt.id,
+                normalized
+            )
+
             print("TOTAL ONU:", len(normalized))
             print("CHANGED ONU:", len(changed_onu))
-            print("CHANGED ONU:", changed_onu)
-            
+
+            # =============================
+            # ALARM ENGINE
+            # =============================
+            alerts = AlarmService.evaluate(
+                self.olt.id,
+                {
+                    "olt_status": olt_status,
+                    "onu_list": normalized
+                }
+            )
+
+            for a in alerts:
+                print(a["message"])
+
             return {
-                        "olt_id": self.olt.id,
-                        "olt_status": olt_status,
-                        "onu_list": changed_onu
-                    }
+                "olt_id": self.olt.id,
+                "olt_status": olt_status,
+                "onu_list": normalized
+            }
 
         except Exception as e:
             return {
-                        "olt_id": self.olt.id,
-                        "olt_status": "ERROR",
-                        "onu_list": [],
-                        "error": str(e)
-                    }
+                "olt_id": self.olt.id,
+                "olt_status": "ERROR",
+                "onu_list": [],
+                "error": str(e)
+            }
