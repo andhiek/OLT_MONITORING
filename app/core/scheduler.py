@@ -9,6 +9,8 @@ from app.services.alarm import AlarmService
 from app.services.olt_service import get_active_olts
 from app.services.onu_service import save_onu_data
 from app.services.alarm_persistence import create_alarm, resolve_alarm
+from app.services.topology_service import load_topology, detect_fiber_cut
+from app.services.topology_service import detect_root_cause
 
 
 # ===============================
@@ -165,5 +167,47 @@ async def monitoring_loop(bot):
         for r in results:
             if isinstance(r, Exception):
                 print("Monitoring task error:", r)
+                
+        fiber_alarms = await detect_fiber_cut()
 
-        await asyncio.sleep(30)
+        for alarm in fiber_alarms:
+            print("FIBER CUT DETECTED:", alarm)
+
+                
+        # ===============================
+        # ROOT CAUSE DETECTION
+        # ===============================
+
+        events = await detect_root_cause()
+
+        for event in events:
+
+            if event["type"] == "fiber_cut":
+
+                text = (
+                    "🚨 *FIBER CUT SUSPECTED*\n\n"
+                    f"OLT : `{event['olt']}`\n"
+                    f"PON : `{event['pon']}`\n"
+                    f"Splitter : `{event['splitter']}`\n\n"
+                    f"ONU Down : {event['down']} / {event['total']}"
+                )
+
+                # kirim ke client yang punya OLT ini
+                for olt in olts:
+
+                    if olt.name == event["olt"] and olt.client.telegram_chat_id:
+
+                        try:
+
+                            await bot.send_message(
+                                chat_id=olt.client.telegram_chat_id,
+                                text=text,
+                                parse_mode="Markdown"
+                            )
+
+                        except Exception as e:
+
+                            print("Telegram FiberCut error:", e)
+                            
+                            
+        await asyncio.sleep(30) # delay 30 detik sebelum next cycle

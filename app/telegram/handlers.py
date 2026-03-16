@@ -4,12 +4,15 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
+from datetime import datetime
+
 
 from app.services.monitoring import MonitoringService
 from app.services.alarm_persistence import acknowledge_alarm
 
 
 router = Router()
+now = datetime.now().strftime("%H:%M")
 
 @router.message(CommandStart())
 async def start_handler(message: Message):
@@ -50,20 +53,35 @@ async def fallback_handler(message: Message):
     
 @router.callback_query(F.data.startswith("ack:"))
 async def handle_ack(callback: CallbackQuery):
-    
-    alarm_id = callback.data.split(":")[1] if callback.data else None
-    
-    print("ACK pressed by:", callback.from_user.first_name)
 
-    success = await acknowledge_alarm(alarm_id,user = callback.from_user)
+    alarm_id = callback.data.split(":")[1] if callback.data else None
+
+    user = callback.from_user.first_name
+    
+
+    success = await acknowledge_alarm(
+        alarm_id,
+        user=callback.from_user
+    )
 
     if success:
+
         await callback.answer("Alarm acknowledged ✅")
 
-        # Hapus tombol jika message bisa diedit
         if isinstance(callback.message, Message):
+
+            # hapus tombol
             await callback.message.edit_reply_markup(reply_markup=None)
-            await callback.message.answer(f"👤 Alarm sudah di-ACK oleh {callback.from_user.first_name}")
-        
+
+            # edit pesan alarm jadi ACK
+            await callback.message.answer(
+                "🟡 *ACKNOWLEDGED*\n\n"
+                f"Handled by : {user}",
+                parse_mode="Markdown"
+            )
+
     else:
-        await callback.answer("Alarm sudah di-ack atau tidak ditemukan ❌")
+        await callback.answer(
+            "Alarm sudah di-ack atau tidak ditemukan ❌",
+            show_alert=True
+        )

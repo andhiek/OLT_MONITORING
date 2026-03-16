@@ -37,7 +37,4 @@ class OLT(Base):
     client = relationship("Client")
     onus = relationship("ONU", back_populates="olt")
 
-    splitters = relationship(
-    "Splitter",
-    back_populates="olt"
-)
+    splitters = relationship("Splitter",back_populates="olt",cascade= "all, delete-orphan")

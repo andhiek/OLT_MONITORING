@@ -23,9 +23,15 @@ class Splitter(Base):
         ForeignKey("olts.id"),
         nullable=False
     )
+    
+    
+    # RELATIONSHIP KE OLT
 
     pon_port: Mapped[str] = mapped_column(String(50), nullable=False)
 
     name: Mapped[str] = mapped_column(String(50), nullable=False)
 
+    olt = relationship("OLT", back_populates="splitters")
     onus = relationship("ONU", back_populates="splitter")
+    
+    

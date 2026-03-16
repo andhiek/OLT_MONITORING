@@ -14,7 +14,7 @@ class ONU(Base):
     
     
     __table_args__ = (
-    UniqueConstraint("olt_id", "onu_index"),
+    UniqueConstraint("olt_id", "onu_index", name="uq_olt_onu_index"),
 )
 
     id: Mapped[uuid.UUID] = mapped_column(
