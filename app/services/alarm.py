@@ -1,5 +1,4 @@
-## ====== alarm.py ========
-
+# ====== app/services/alarm.py ========
 
 class AlarmService:
 
@@ -12,9 +11,6 @@ class AlarmService:
     previous_state = {}
     fiber_state = {}
 
-    # =============================
-    # MAIN EVALUATION
-    # =============================
     @classmethod
     def evaluate(cls, olt_id, data):
 
@@ -25,21 +21,34 @@ class AlarmService:
 
         olt_state = cls.previous_state[olt_id]
 
+        # =============================
         # OLT CHECK
+        # =============================
         olt_status = data.get("olt_status")
         prev_olt_status = olt_state.get("olt_status")
 
         if prev_olt_status and prev_olt_status != olt_status:
+
             if olt_status != "ONLINE":
                 alerts.append({
-                                "event": "OLT_OFFLINE",
-                                "message": "🚨 OLT OFFLINE!"
-                            })
+                    "olt_id": olt_id,
+                    "device_id": olt_id,
+                    "device_type": "OLT",
+                    "event": "OLT_OFFLINE",
+                    "status": "DOWN",
+                    "severity": "CRITICAL",
+                    "message": f"🚨 OLT {olt_id} OFFLINE"
+                })
             else:
                 alerts.append({
-                                "event": "OLT_RECOVERED",
-                                "message": "✅ OLT BACK ONLINE"
-                            })
+                    "olt_id": olt_id,
+                    "device_id": olt_id,
+                    "device_type": "OLT",
+                    "event": "OLT_RECOVERED",
+                    "status": "UP",
+                    "severity": "INFO",
+                    "message": f"✅ OLT {olt_id} BACK ONLINE"
+                })
 
         olt_state["olt_status"] = olt_status
 
@@ -47,8 +56,11 @@ class AlarmService:
         # ONU CHECK
         # =============================
         for onu in data.get("onu_list", []):
+            
 
-            key = f"onu_{onu['id']}"
+            onu_id = int(onu["id"])
+            key = f"onu_{onu_id}"
+            print(f"[CHECK] ONU {onu_id} RAW STATUS: {onu.get('status')}")
 
             if key not in olt_state:
                 olt_state[key] = {
@@ -65,7 +77,9 @@ class AlarmService:
             current_status = onu.get("status")
             current_power = onu.get("power")
 
+            # =============================
             # STATUS DEBOUNCE
+            # =============================
             if current_status != state["status"]:
                 state["status_counter"] += 1
 
@@ -75,22 +89,32 @@ class AlarmService:
 
                     if current_status == "OFFLINE":
                         alerts.append({
+                            "olt_id": olt_id,
+                            "device_id": onu_id,
+                            "device_type": "ONU",
                             "event": "ONU_OFFLINE",
-                            "onu_index": str(onu["id"]),
-                            "message": f"🚨 ONU {onu['id']} OFFLINE"
+                            "status": "DOWN",
+                            "severity": "MAJOR",
+                            "message": f"🚨 ONU {onu_id} OFFLINE"
                         })
 
                     elif current_status == "ONLINE":
                         alerts.append({
+                            "olt_id": olt_id,
+                            "device_id": onu_id,
+                            "device_type": "ONU",
                             "event": "ONU_ONLINE",
-                            "onu_index": str(onu["id"]),
-                            "message": f"✅ ONU {onu['id']} ONLINE"
+                            "status": "UP",
+                            "severity": "INFO",
+                            "message": f"✅ ONU {onu_id} ONLINE"
                         })
 
             else:
                 state["status_counter"] = 0
 
+            # =============================
             # POWER CHECK
+            # =============================
             if current_status == "ONLINE" and isinstance(current_power, (int, float)):
 
                 if state["power_state"] == "NORMAL":
@@ -103,9 +127,13 @@ class AlarmService:
                             state["power_counter"] = 0
 
                             alerts.append({
+                                "olt_id": olt_id,
+                                "device_id": onu_id,
+                                "device_type": "ONU",
                                 "event": "ONU_LOW_POWER",
-                                "onu_index": str(onu["id"]),
-                                "message": f"📉 ONU {onu['id']} Redaman Tinggi ({current_power} dBm)"
+                                "status": "DEGRADED",
+                                "severity": "MINOR",
+                                "message": f"📉 ONU {onu_id} Redaman Tinggi ({current_power} dBm)"
                             })
 
                     else:
@@ -121,9 +149,13 @@ class AlarmService:
                             state["power_counter"] = 0
 
                             alerts.append({
+                                "olt_id": olt_id,
+                                "device_id": onu_id,
+                                "device_type": "ONU",
                                 "event": "ONU_POWER_NORMAL",
-                                "onu_index": str(onu["id"]),
-                                "message": f"✅ ONU {onu['id']} Redaman Normal ({current_power} dBm)"
+                                "status": "UP",
+                                "severity": "INFO",
+                                "message": f"✅ ONU {onu_id} Redaman Normal ({current_power} dBm)"
                             })
 
                     else:
@@ -134,58 +166,50 @@ class AlarmService:
         # =============================
         # FIBER CUT DETECTION
         # =============================
-        fiber_events = cls.detect_fiber_cut(
-                                olt_id,
-                                data.get("onu_list", [])
-                            )
-
+        fiber_events = cls.detect_fiber_cut(olt_id, data.get("onu_list", []))
         alerts.extend(fiber_events)
 
-            # =============================
-            # ROOT CAUSE FILTER
-            # =============================
+        # =============================
+        # ROOT CAUSE FILTER
+        # =============================
         fiber_ports = {
-                e["pon_port"]
-                for e in fiber_events
-                if e["event"] == "FIBER_CUT"
-            }
+            e["pon_port"]
+            for e in fiber_events
+            if e["event"] == "FIBER_CUT"
+        }
 
         if fiber_ports:
+            filtered = []
 
-                filtered = []
+            for a in alerts:
 
-                for a in alerts:
+                if a.get("event") in ["ONU_OFFLINE", "ONU_LOW_POWER"]:
 
-                    if isinstance(a, dict):
+                    onu_id = a.get("device_id")
 
-                        # skip ONU alarms jika fiber cut
-                        if a.get("event") in ["ONU_OFFLINE", "ONU_LOW_POWER"]:
+                    pon = next(
+                        (
+                            o["pon_port"]
+                            for o in data["onu_list"]
+                            if int(o["id"]) == onu_id
+                        ),
+                        None
+                    )
 
-                            pon = next(
-                                (
-                                    o["pon_port"]
-                                    for o in data["onu_list"]
-                                    if str(o["id"]) == a["onu_index"]
-                                ),
-                                None
-                            )
+                    if pon in fiber_ports:
+                        continue
 
-                            if pon in fiber_ports:
-                                continue
+                filtered.append(a)
 
-                    filtered.append(a)
-
-                alerts = filtered
-                    
+            alerts = filtered
 
         return alerts
-
 
     # =============================
     # FIBER CUT DETECTOR
     # =============================
     @classmethod
-    def detect_fiber_cut(cls,olt_id, onu_list):
+    def detect_fiber_cut(cls, olt_id, onu_list):
 
         if olt_id not in cls.fiber_state:
             cls.fiber_state[olt_id] = {}
@@ -194,18 +218,12 @@ class AlarmService:
 
         pon_map = {}
 
-        # group ONU by PON
         for onu in onu_list:
-
             port = onu.get("pon_port")
-
             if not port:
                 continue
 
-            if port not in pon_map:
-                pon_map[port] = []
-
-            pon_map[port].append(onu)
+            pon_map.setdefault(port, []).append(onu)
 
         events = []
 
@@ -216,15 +234,16 @@ class AlarmService:
 
             prev_state = olt_fiber.get(port, "NORMAL")
 
-            # ========================
-            # FIBER CUT
-            # ========================
             if offline_count >= 3:
 
                 if prev_state != "CUT":
-
                     events.append({
+                        "olt_id": olt_id,
+                        "device_id": hash(f"{olt_id}-{port}"),
+                        "device_type": "PON",
                         "event": "FIBER_CUT",
+                        "status": "DOWN",
+                        "severity": "CRITICAL",
                         "pon_port": port,
                         "count": offline_count,
                         "message": f"🚨 FIBER CUT DETECTED | PON {port} | ONU DOWN {offline_count}"
@@ -232,15 +251,16 @@ class AlarmService:
 
                     olt_fiber[port] = "CUT"
 
-            # ========================
-            # FIBER RESTORED
-            # ========================
             else:
 
                 if prev_state == "CUT":
-
                     events.append({
+                        "olt_id": olt_id,
+                        "device_id": hash(f"{olt_id}-{port}"),
+                        "device_type": "PON",
                         "event": "FIBER_RESTORED",
+                        "status": "UP",
+                        "severity": "INFO",
                         "pon_port": port,
                         "count": offline_count,
                         "message": f"✅ FIBER RESTORED | PON {port}"
@@ -249,5 +269,3 @@ class AlarmService:
                     olt_fiber[port] = "NORMAL"
 
         return events
-
-    
