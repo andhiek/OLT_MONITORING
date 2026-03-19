@@ -99,7 +99,7 @@ class MonitoringService:
 
                 else:
                     # DEGRADED / lainnya tetap lewat
-                    stable_alerts.append(a)
+                    stable_alerts.append(a) 
 
             # 🔥 FALLBACK (PENTING)
             if not stable_alerts and alerts:
@@ -123,15 +123,16 @@ class MonitoringService:
             for a in correlated_alerts:
                 print(a["message"], "| root:", a.get("is_root"))
             return {
-                "olt_id": self.olt.id,
-                "olt_status": olt_status,
-                "onu_list": normalized
-            }
+                    "olt_id": self.olt.id,
+                    "olt_status": olt_status,
+                    "onu_list": normalized,
+                    "alerts": correlated_alerts   # ⬅️ INI KUNCI
+                }
 
         except Exception as e:
             return {
-                "olt_id": self.olt.id,
-                "olt_status": "ERROR",
-                "onu_list": [],
-                "error": str(e)
-            }
+                    "olt_id": self.olt.id,
+                    "olt_status": olt_status,
+                    "onu_list": normalized,
+                    "alerts": correlated_alerts   # ⬅️ INI KUNCI
+                }

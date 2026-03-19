@@ -62,7 +62,9 @@ async def process_olt(bot, olt):
                 "message": data["error"]
             }]
         else:
-            alerts = AlarmService.evaluate(olt.id, data)
+            data = await service.get_status()
+
+            alerts = data.get("alerts", [])
 
             
 
@@ -80,66 +82,74 @@ async def process_olt(bot, olt):
 
     # Telegram Notification
     if alerts and olt.client.telegram_chat_id:
-        for alert in alerts:
-            
-            try:
-                text = format_telegram_message(olt.name, alert)
-                keyboard = None
-                alarm_id = None  # <- penting!
 
-                # Hanya OFFLINE yang buat alarm + tombol
-                if alert["event"] == "ONU_OFFLINE":
-                    onu_uuid = onu_mapping.get(alert.get("onu_index"))
+            for alert in alerts:
 
-                    alarm_id = await create_alarm(
-                        olt,
-                        onu_uuid,
-                        "ONU_OFFLINE",
-                        alert["message"]
-                    )
-                elif alert["event"] == "ONU_ONLINE":
+                try:
+                    text = alert["message"]
 
-                    onu_uuid = onu_mapping.get(alert.get("onu_index"))
+                    alarm_id = None
+                    keyboard = None
 
-                    resolved = await resolve_alarm(
-                        olt,
-                        onu_uuid,
-                        "ONU_OFFLINE"
-                    )
+                    # =========================
+                    # CREATE ALARM (ONLY ROOT DOWN)
+                    # =========================
+                    if alert.get("is_root") and alert.get("status") == "DOWN":
 
-                    if resolved:
-                        text += f"\nDuration: {resolved['duration']}"
+                        onu_uuid = onu_mapping.get(str(alert.get("device_id")))
 
-                        if resolved["acknowledged_by"]:
-                            text += f"\nHandled by: {resolved['acknowledged_by']}"
-
-                        await bot.send_message(
-                            olt.client.telegram_chat_id,
+                        alarm_id = await create_alarm(
+                            olt,
+                            onu_uuid,
+                            alert.get("event"),
                             text
                         )
 
-                if alarm_id:
-                    keyboard = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [
-                                InlineKeyboardButton(
-                                    text="✅ ACK",
-                                    callback_data=f"ack:{alarm_id}"
-                                )
+                    # =========================
+                    # RESOLVE
+                    # =========================
+                    elif alert.get("status") == "UP":
+
+                        onu_uuid = onu_mapping.get(str(alert.get("device_id")))
+
+                        resolved = await resolve_alarm(
+                            olt,
+                            onu_uuid,
+                            alert.get("event")
+                        )
+                        if not onu_uuid:
+                            print(f"⚠️ ONU UUID not found for device_id {alert.get('device_id')}")
+                            continue
+
+                        if resolved:
+                            text += f"\nDuration: {resolved['duration']}"
+
+                            if resolved["acknowledged_by"]:
+                                text += f"\nHandled by: {resolved['acknowledged_by']}"
+
+                    # =========================
+                    # BUTTON ACK
+                    # =========================
+                    if alarm_id:
+                        keyboard = InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(
+                                        text="✅ ACK",
+                                        callback_data=f"ack:{alarm_id}"
+                                    )
+                                ]
                             ]
-                        ]
-                    )
-                    
+                        )
 
                     await bot.send_message(
                         olt.client.telegram_chat_id,
                         text,
                         reply_markup=keyboard
                     )
-                    print("Sending alarm for ONU", alarm_id)
 
-            except Exception as e:
-                print(f"Telegram error ({olt.name}): {e}")
+                except Exception as e:
+                    print(f"Telegram error ({olt.name}): {e}")
  
 # ===============================
 # Main Monitoring Loop
