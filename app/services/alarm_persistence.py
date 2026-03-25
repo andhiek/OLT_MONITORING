@@ -1,3 +1,6 @@
+# ========= app/services/alarm_persistance.py ===========
+from uuid import UUID
+
 from datetime import datetime
 from uuid import UUID
 from sqlalchemy import select
@@ -43,7 +46,7 @@ async def create_alarm(olt, onu_id, alarm_type, message):
             await session.commit()
             await session.refresh(alarm)
 
-            return alarm.id  # penting untuk Telegram ACK button
+            return str(alarm.id ) # penting untuk Telegram ACK button
 
         except Exception:
             await session.rollback()
@@ -90,9 +93,16 @@ async def resolve_alarm(olt, onu_id, alarm_type):
 # ==========================================================
 # ACKNOWLEDGE ALARM
 # ==========================================================
+
 async def acknowledge_alarm(alarm_id, user):
     async with AsyncSessionLocal() as session:
         try:
+            # 🔥 FIX: pastikan UUID valid
+            try:
+                alarm_id = UUID(alarm_id)
+            except Exception:
+                return False
+
             alarm = await session.get(Alarm, alarm_id)
 
             if not alarm:
@@ -104,8 +114,8 @@ async def acknowledge_alarm(alarm_id, user):
             if alarm.acknowledged_at:
                 return False
 
-            # ambil nama operator dari Telegram
-            name = user.first_name or user.username or "Operator"
+            # 🔥 FIX: user sudah string
+            name = user or "Operator"
 
             alarm.acknowledged_at = datetime.utcnow()
             alarm.acknowledged_name = name
@@ -117,7 +127,6 @@ async def acknowledge_alarm(alarm_id, user):
         except Exception:
             await session.rollback()
             raise
-
 
 # ==========================================================
 # GET ACTIVE ALARM (OPTIONAL HELPER)

@@ -1,19 +1,20 @@
-## =========== handlers.py =========
-
+# =========== handlers.py =========
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
-from datetime import datetime
-
 
 from app.services.monitoring import MonitoringService
 from app.services.alarm_persistence import acknowledge_alarm
+from app.services.ticket_service import TicketService
 
 
 router = Router()
-now = datetime.now().strftime("%H:%M")
 
+
+# ===============================
+# START
+# ===============================
 @router.message(CommandStart())
 async def start_handler(message: Message):
     await message.answer(
@@ -22,66 +23,64 @@ async def start_handler(message: Message):
     )
 
 
-
-
+# ===============================
+# STATUS (OPTIONAL DEBUG)
+# ===============================
 @router.message(Command("status"))
 async def status_handler(message: Message):
-    data: dict[str, str] = await MonitoringService(olt="default").get_status()
+    await message.answer("⚠️ Status command belum terhubung ke OLT real.")
 
-    text = (
-        "📡 OLT STATUS\n\n"
-        f"Status : {data['olt_status']}\n"
-        f"ONU Active : {data['active_onu']}\n"
-        f"ONU Down : {data['down_onu']}"
-    )
 
-    await message.answer(text)
-
-'''@router.message()
-async def debug_id(message: Message):
-    print("CHAT ID:", message.chat.id)
-    await message.reply(f"Your chat id: {message.chat.id}")
-'''
-
-'''@router.message()
-async def get_id(message: Message):
-    await message.reply(f"Your ID: {message.chat.id}")
-'''
+# ===============================
+# FALLBACK
+# ===============================
 @router.message()
 async def fallback_handler(message: Message):
     await message.answer("Perintah tidak dikenali.")
-    
+
+
+# ===============================
+# ACK HANDLER (FIXED)
+# ===============================
 @router.callback_query(F.data.startswith("ack:"))
 async def handle_ack(callback: CallbackQuery):
 
     alarm_id = callback.data.split(":")[1] if callback.data else None
 
-    user = callback.from_user.first_name
-    
+    user_name = callback.from_user.full_name or "Unknown"
 
+    # =========================
+    # ACK ALARM
+    # =========================
     success = await acknowledge_alarm(
         alarm_id,
-        user=callback.from_user
+        user=user_name
     )
 
     if success:
 
-        await callback.answer("Alarm acknowledged ✅")
+        # =========================
+        # UPDATE TICKET
+        # =========================
+        try:
+            await TicketService.acknowledge_ticket(alarm_id, user_name)
+        except Exception as e:
+            print("Ticket ACK error:", e)
+
+        await callback.answer("ACK berhasil ✅")
 
         if isinstance(callback.message, Message):
 
             # hapus tombol
             await callback.message.edit_reply_markup(reply_markup=None)
 
-            # edit pesan alarm jadi ACK
+            # kirim notifikasi ACK
             await callback.message.answer(
-                "🟡 *ACKNOWLEDGED*\n\n"
-                f"Handled by : {user}",
-                parse_mode="Markdown"
+                f"🟡 ACKNOWLEDGED\n\nHandled by : {user_name}"
             )
 
     else:
         await callback.answer(
-            "Alarm sudah di-ack atau tidak ditemukan ❌",
+            "Sudah di-ACK atau tidak ditemukan ❌",
             show_alert=True
         )

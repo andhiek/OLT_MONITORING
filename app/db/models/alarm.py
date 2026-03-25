@@ -85,7 +85,7 @@ class Alarm(Base):
     # SEVERITY & ESCALATION
     # ==============================
 
-    severity: Mapped[str] = mapped_column(
+    severity: Mapped[str] = mapped_column(  
         String(20),
         nullable=False,
         default="medium"

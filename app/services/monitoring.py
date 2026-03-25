@@ -10,6 +10,7 @@ from app.snmp.zte_c320 import ZTEC320
 from app.services.alarm import AlarmService
 from app.services.alarm_flap_guard import AlarmFlapGuard
 from app.services.alarm_correlation_service import AlarmCorrelationService
+from app.services.ticket_service import TicketService
 
 from app.core.delta import DeltaProcessor
 
@@ -20,9 +21,6 @@ class MonitoringService:
     _simulators = {}
 
     def __init__(self, olt):
-        """
-        olt adalah object dari database (model OLT)
-        """
         self.olt = olt
         mode = os.getenv("MODE", "simulator")
 
@@ -72,20 +70,20 @@ class MonitoringService:
                     "onu_list": normalized
                 }
             )
+
             print("RAW ALERTS:")
             for a in alerts:
                 print(a)
 
             # =============================
-            # 4. FLAP GUARD (ANTI FLAPPING)
+            # 4. FLAP GUARD
             # =============================
             stable_alerts = []
 
             for a in alerts:
                 device_id = a.get("device_id")
-                status = a.get("status")  # 🔥 pakai ini, bukan message
+                status = a.get("status")
 
-                # ❌ kalau tidak ada device_id → skip (jangan dipakai)
                 if not device_id:
                     continue
 
@@ -98,41 +96,67 @@ class MonitoringService:
                         stable_alerts.append(a)
 
                 else:
-                    # DEGRADED / lainnya tetap lewat
-                    stable_alerts.append(a) 
+                    stable_alerts.append(a)
 
-            # 🔥 FALLBACK (PENTING)
             if not stable_alerts and alerts:
                 print("⚠️ Flap guard filtered all alerts, fallback to raw alerts")
                 stable_alerts = alerts
-                print("STABLE ALERTS:")
+
+            print("STABLE ALERTS:")
             for a in stable_alerts:
                 print(a)
 
             # =============================
-            # 5. CORRELATION ENGINE
+            # 5. CORRELATION
             # =============================
             correlated_alerts = AlarmCorrelationService.process(stable_alerts)
-            
+
+            ''' # =============================
+            # 6. CREATE TICKETS 🔥
             # =============================
-            # 6. OUTPUT
+            for alert in correlated_alerts:
+                try:
+                    if not alert.get("is_root"):
+                        continue
+
+                    if alert.get("status") != "DOWN":
+                        continue
+
+                    onu_id = alert.get("device_id")
+
+                    print(f"🎯 Creating ticket for ONU {onu_id}")
+
+                    await TicketService.create_ticket(
+                        self.olt,
+                        onu_id,
+                        alert
+                    )
+
+                except Exception as e:
+                    print("❌ Ticket creation error:", e)
+                    # Kirim Telegram jika terjadi error saat pembuatan ticket
+                    # Tapi pastikan OLT punya chat_id untuk menghindari error berantai
+                    '''
             # =============================
-            '''for a in correlated_alerts:
-                print(a["message"])'''
+            # 7. OUTPUT
+            # =============================
             print("FINAL OUTPUT:")
             for a in correlated_alerts:
                 print(a["message"], "| root:", a.get("is_root"))
+
             return {
-                    "olt_id": self.olt.id,
-                    "olt_status": olt_status,
-                    "onu_list": normalized,
-                    "alerts": correlated_alerts   # ⬅️ INI KUNCI
-                }
+                "olt_id": self.olt.id,
+                "olt_status": olt_status,
+                "onu_list": normalized,
+                "alerts": correlated_alerts
+            }
 
         except Exception as e:
+            print("❌ Monitoring error:", e)
+
             return {
-                    "olt_id": self.olt.id,
-                    "olt_status": olt_status,
-                    "onu_list": normalized,
-                    "alerts": correlated_alerts   # ⬅️ INI KUNCI
-                }
+                "olt_id": self.olt.id,
+                "olt_status": None,
+                "onu_list": [],
+                "alerts": []
+            }
