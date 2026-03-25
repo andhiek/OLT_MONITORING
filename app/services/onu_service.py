@@ -48,8 +48,10 @@ async def save_onu_data(olt, onu_list):
             session.add(log)
 
             # 👇 simpan ke mapping
-            onu_mapping[str(onu_data["id"])] = str(onu.id)
+            onu_mapping[str(onu_data["id"])] = onu.id
 
         await session.commit()
 
     return onu_mapping  # 👈 penting
+
+

@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 
-from app.db.base import Base
+from app.db.base import  Base
 
 
 class ONU(Base):
@@ -66,3 +66,5 @@ class ONU(Base):
         "Splitter",
         back_populates="onus"
     )
+    
+    

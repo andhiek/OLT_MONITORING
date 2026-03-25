@@ -5,72 +5,105 @@ from datetime import datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.monitoring import MonitoringService
-from app.services.alarm import AlarmService
 from app.services.olt_service import get_active_olts
 from app.services.onu_service import save_onu_data
 from app.services.alarm_persistence import create_alarm, resolve_alarm
-from app.services.topology_service import load_topology, detect_fiber_cut
 from app.services.topology_service import detect_root_cause
+from app.services.ticket_service import TicketService
 
 
 # ===============================
-# Telegram Formatter
+# TELEGRAM FORMAT (FINAL NOC STYLE)
 # ===============================
-def format_telegram_message(olt_name, alert):
+def format_telegram(alert, olt_name, ticket_id=None, resolved=None):
     now = datetime.now().strftime("%H:%M")
 
     event = alert.get("event")
-    onu = alert.get("onu_index")
-    message = alert.get("message")
+    onu = str(alert.get("device_id"))
+    pon = alert.get("pon_port")
 
+    # =============================
+    # FIBER CUT
+    # =============================
+    if event == "FIBER_CUT":
+        text = (
+            "🚨 FIBER CUT\n\n"
+            f"OLT     : {olt_name}\n"
+            f"PON     : {pon}\n"
+            f"Impact  : {alert.get('count')} ONU DOWN\n\n"
+            f"Time    : {now}"
+        )
+        if ticket_id:
+            text += f"\nTicket  : #{ticket_id}"
+        return text
+
+    # =============================
+    # ONU DOWN
+    # =============================
     if event == "ONU_OFFLINE":
-        icon = "🔴"
-        body = f"ONU: {onu}\nStatus: OFFLINE"
+        text = (
+            "🚨 ONU DOWN\n\n"
+            f"OLT     : {olt_name}\n"
+            f"ONU     : {onu}\n"
+            f"Status  : OFFLINE\n\n"
+            f"Time    : {now}"
+        )
+        if ticket_id:
+            text += f"\nTicket  : #{ticket_id}"
+        return text
 
-    elif event == "ONU_ONLINE":
-        icon = "🟢"
-        body = f"ONU: {onu}\nStatus: BACK ONLINE"
+    # =============================
+    # RECOVERY
+    # =============================
+    if event == "ONU_ONLINE":
+        text = (
+            "✅ RECOVERY\n\n"
+            f"OLT     : {olt_name}\n"
+            f"ONU     : {onu}\n"
+            f"Status  : BACK ONLINE\n"
+        )
 
-    elif event == "ONU_LOW_POWER":
-        icon = "🟡"
-        body = f"ONU: {onu}\nStatus: REDAMAN TINGGI"
+        if resolved:
+            text += f"\nDuration: {resolved['duration']}"
+            if resolved.get("acknowledged_by"):
+                text += f"\nHandled : {resolved['acknowledged_by']}"
 
-    elif event == "ONU_POWER_NORMAL":
-        icon = "🟢"
-        body = f"ONU: {onu}\nStatus: POWER NORMAL"
+        text += f"\n\nTime    : {now}"
+        return text
 
-    else:
-        icon = "⚪"
-        body = message
+    # =============================
+    # LOW POWER
+    # =============================
+    if event == "ONU_LOW_POWER":
+        return (
+            "⚠️ SIGNAL ISSUE\n\n"
+            f"OLT     : {olt_name}\n"
+            f"ONU     : {onu}\n"
+            f"Status  : LOW POWER\n\n"
+            f"Time    : {now}"
+        )
 
-    return f"{icon} [{olt_name}]\n{body}\nTime: {now}"
+    return f"{alert.get('message')}\nTime: {now}"
 
 
 # ===============================
-# Process Single OLT
+# PROCESS PER OLT
 # ===============================
 async def process_olt(bot, olt):
     service = MonitoringService(olt)
 
     try:
+        # ✅ hanya sekali
         data = await service.get_status()
-        onu_mapping = await save_onu_data(olt, data.get("onu_list", []))
 
-        if "error" in data:
-            alerts = [{
-                "event": "SNMP_ERROR",
-                "message": data["error"]
-            }]
-        else:
-            data = await service.get_status()
+        onu_mapping = await save_onu_data(
+            olt, data.get("onu_list", [])
+        )
 
-            alerts = data.get("alerts", [])
-
-            
+        alerts = data.get("alerts", [])
 
     except Exception as e:
         if olt.client.telegram_chat_id:
-            # jika error monitoring, kirin notif ke telegram
             try:
                 await bot.send_message(
                     olt.client.telegram_chat_id,
@@ -80,79 +113,128 @@ async def process_olt(bot, olt):
                 pass
         return
 
-    # Telegram Notification
-    if alerts and olt.client.telegram_chat_id:
+    if not alerts or not olt.client.telegram_chat_id:
+        return
 
-            for alert in alerts:
+    # ===============================
+    # SEND TELEGRAM
+    # ===============================
+    for alert in alerts:
 
-                try:
-                    text = alert["message"]
+        # 🔥 SANITIZE
+        alert["olt_id"] = str(alert.get("olt_id")) if alert.get("olt_id") else None
+        alert["device_id"] = str(alert.get("device_id")) if alert.get("device_id") else None
 
-                    alarm_id = None
-                    keyboard = None
+        print("🧪 DEBUG ALERT RAW:", alert)
 
-                    # =========================
-                    # CREATE ALARM (ONLY ROOT DOWN)
-                    # =========================
-                    if alert.get("is_root") and alert.get("status") == "DOWN":
+        try:
+            # ✅ hanya ROOT
+            if not alert.get("is_root"):
+                continue
 
-                        onu_uuid = onu_mapping.get(str(alert.get("device_id")))
+            device_id = alert.get("device_id")
+            device_type = alert.get("device_type")
 
-                        alarm_id = await create_alarm(
-                            olt,
-                            onu_uuid,
-                            alert.get("event"),
-                            text
-                        )
+            onu_uuid = None
+            alarm_id = None
+            ticket_id = None
+            resolved = None
 
-                    # =========================
-                    # RESOLVE
-                    # =========================
-                    elif alert.get("status") == "UP":
+            # =========================
+            # CREATE (DOWN)
+            # =========================
+            if alert.get("status") == "DOWN":
 
-                        onu_uuid = onu_mapping.get(str(alert.get("device_id")))
+                if device_type != "ONU":
+                    print(f"⚠️ Skip non-ONU: {device_type}")
+                    continue
 
-                        resolved = await resolve_alarm(
-                            olt,
-                            onu_uuid,
-                            alert.get("event")
-                        )
-                        if not onu_uuid:
-                            print(f"⚠️ ONU UUID not found for device_id {alert.get('device_id')}")
-                            continue
+                onu_uuid = onu_mapping.get(str(device_id))
 
-                        if resolved:
-                            text += f"\nDuration: {resolved['duration']}"
+                if not onu_uuid:
+                    print(f"⚠️ ONU UUID not found: {device_id}")
+                    continue
 
-                            if resolved["acknowledged_by"]:
-                                text += f"\nHandled by: {resolved['acknowledged_by']}"
+                print(f"🎯 Creating ticket for ONU {device_id}")
 
-                    # =========================
-                    # BUTTON ACK
-                    # =========================
-                    if alarm_id:
-                        keyboard = InlineKeyboardMarkup(
-                            inline_keyboard=[
-                                [
-                                    InlineKeyboardButton(
-                                        text="✅ ACK",
-                                        callback_data=f"ack:{alarm_id}"
-                                    )
-                                ]
-                            ]
-                        )
+                ticket_id = await TicketService.create_ticket(
+                    olt,
+                    onu_uuid,
+                    alert
+                )
+                
+                print(f" type ticket_id : {type(ticket_id)}")
 
-                    await bot.send_message(
-                        olt.client.telegram_chat_id,
-                        text,
-                        reply_markup=keyboard
+                alarm_id = await create_alarm(
+                    olt,
+                    onu_uuid,
+                    alert.get("event"),
+                    alert.get("message")
+                )
+                print(f"Alarm created with ID : {alarm_id}")
+                print(f" type alarm_id : {type(alarm_id)}")
+                print(f" Proses Resolve Alarm for ONU {device_id}")
+            # =========================
+            # RESOLVE (UP)
+            # =========================
+            elif alert.get("status") == "UP":
+
+                if device_type == "ONU":
+                    onu_uuid = onu_mapping.get(str(device_id))
+
+                    if not onu_uuid:
+                        continue
+
+                    resolved = await resolve_alarm(
+                        olt,
+                        onu_uuid,
+                        alert.get("event")
                     )
 
-                except Exception as e:
-                    print(f"Telegram error ({olt.name}): {e}")
- 
+            # =========================
+            # FORMAT
+            # =========================
+            text = format_telegram(
+                alert,
+                olt.name,
+                ticket_id=ticket_id,
+                resolved=resolved
+            )
+            
+            print("Formatted Telegram Text: ",text)
+
+            # =========================
+            # BUTTON
+            # =========================
+            keyboard = None
+            if alarm_id:
+                alarm_id = str(alarm_id)  # 🔥 FINAL SAFETY
+
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="✅ ACK",
+                                callback_data=f"ack:{alarm_id}"
+                            )
+                        ]
+                    ]
+                )
+
+            print("🧪 FINAL TEXT:", text)
+
+            await bot.send_message(
+                olt.client.telegram_chat_id,
+                text,
+                reply_markup=keyboard
+            )
+
+        except Exception as e:
+            print(f"Telegram error ({olt.name}): {e}")
+
+
 # ===============================
-# Main Monitoring Loop
+# MAIN LOOP
 # ===============================
 async def monitoring_loop(bot):
 
@@ -167,27 +249,17 @@ async def monitoring_loop(bot):
             await asyncio.sleep(30)
             continue
 
-        tasks = [
-            process_olt(bot, olt)
-            for olt in olts
-        ]
+        tasks = [process_olt(bot, olt) for olt in olts]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for r in results:
             if isinstance(r, Exception):
                 print("Monitoring task error:", r)
-                
-        fiber_alarms = await detect_fiber_cut()
 
-        for alarm in fiber_alarms:
-            print("FIBER CUT DETECTED:", alarm)
-
-                
         # ===============================
-        # ROOT CAUSE DETECTION
+        # ROOT CAUSE (TOPOLOGY)
         # ===============================
-
         events = await detect_root_cause()
 
         for event in events:
@@ -202,22 +274,15 @@ async def monitoring_loop(bot):
                     f"ONU Down : {event['down']} / {event['total']}"
                 )
 
-                # kirim ke client yang punya OLT ini
                 for olt in olts:
-
                     if olt.name == event["olt"] and olt.client.telegram_chat_id:
-
                         try:
-
                             await bot.send_message(
                                 chat_id=olt.client.telegram_chat_id,
                                 text=text,
                                 parse_mode="Markdown"
                             )
-
                         except Exception as e:
-
                             print("Telegram FiberCut error:", e)
-                            
-                            
-        await asyncio.sleep(30) # delay 30 detik sebelum next cycle
+
+        await asyncio.sleep(30)

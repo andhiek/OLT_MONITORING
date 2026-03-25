@@ -58,7 +58,8 @@ class AlarmService:
         for onu in data.get("onu_list", []):
             
 
-            onu_id = int(onu["id"])
+            onu_id = int(onu["id"]) #
+            # onu_id = str(onu["id"]) # Ganti ke string karena di ticket kita simpan sebagai string bebas ( bisa jadi nomor onu atau label onu )
             key = f"onu_{onu_id}"
             print(f"[CHECK] ONU {onu_id} RAW STATUS: {onu.get('status')}")
 
