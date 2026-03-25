@@ -9,8 +9,6 @@ from datetime import datetime
 from app.db.base import Base
 
 
-#
-# HAPUS UUID untuk onu_id
 
 class Ticket(Base):
     __tablename__ = "tickets"

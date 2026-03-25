@@ -5,7 +5,6 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 
 from app.services.monitoring import MonitoringService
-from app.services.alarm_persistence import acknowledge_alarm
 from app.services.ticket_service import TicketService
 
 
@@ -46,35 +45,19 @@ async def fallback_handler(message: Message):
 async def handle_ack(callback: CallbackQuery):
 
     alarm_id = callback.data.split(":")[1] if callback.data else None
-
     user_name = callback.from_user.full_name or "Unknown"
 
-    # =========================
-    # ACK ALARM
-    # =========================
-    success = await acknowledge_alarm(
-        alarm_id,
-        user=user_name
-    )
+    print(f"[ACK DEBUG] received alarm_id: {alarm_id}")
 
-    if success:
+    result = await TicketService.acknowledge_ticket(alarm_id, user_name)
 
-        # =========================
-        # UPDATE TICKET
-        # =========================
-        try:
-            await TicketService.acknowledge_ticket(alarm_id, user_name)
-        except Exception as e:
-            print("Ticket ACK error:", e)
+    if result:
 
         await callback.answer("ACK berhasil ✅")
 
         if isinstance(callback.message, Message):
-
-            # hapus tombol
             await callback.message.edit_reply_markup(reply_markup=None)
 
-            # kirim notifikasi ACK
             await callback.message.answer(
                 f"🟡 ACKNOWLEDGED\n\nHandled by : {user_name}"
             )

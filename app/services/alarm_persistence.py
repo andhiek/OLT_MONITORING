@@ -12,7 +12,7 @@ from app.core.severity import get_severity
 # ==========================================================
 # CREATE ALARM
 # ==========================================================
-async def create_alarm(olt, onu_id, alarm_type, message):
+async def create_alarm(olt, onu_id , alarm_type, message,alarm_id =None):
     async with AsyncSessionLocal() as session:
         try:
             # Cek apakah sudah ada alarm aktif dengan tipe sama
