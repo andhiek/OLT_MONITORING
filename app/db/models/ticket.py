@@ -2,7 +2,7 @@
 # ========== app/db/models/ ticket.py ===========
 
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey,Integer
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 
@@ -31,6 +31,7 @@ class Ticket(Base):
     acknowledged_at = Column(DateTime, nullable=True)
     acknowledged_by = Column(String, nullable=True)
     resolved_at = Column(DateTime, nullable=True)
+    
     
     
     

@@ -68,10 +68,15 @@ class TicketService:
     @staticmethod
     async def acknowledge_ticket(alarm_id, user_name):
         alarm_id = str(alarm_id).strip() # 🔥 SAFETY CONVERSION
+        
+        
         if not alarm_id:
                     print("❌ Invalid alarm_id")
                     return "NOT FOUND"
+                
+                
         async with async_session() as session:
+            
             try:
                 stmt = (
                     update(Ticket)
@@ -102,3 +107,74 @@ class TicketService:
                 
                 
     
+    
+    @staticmethod
+    async def resolve_ticket(onu_uuid, event):
+        async with async_session() as session:
+            try:
+                from sqlalchemy import select, update
+
+                # 🔥 cari ticket aktif
+                result = await session.execute(
+                    select(Ticket)
+                    .where(
+                        Ticket.onu_id == onu_uuid,
+                        Ticket.event == "ONU_OFFLINE",
+                        Ticket.status.in_(["OPEN", "ACK"])
+                    )
+                    .order_by(Ticket.created_at.desc())
+                    .limit(1)
+                )
+
+                ticket = result.scalar()
+
+                if not ticket:
+                    print(f"⚠️ No active ticket for ONU {onu_uuid}")
+                    return None
+
+                now = datetime.utcnow()
+                duration_sec = int((now - ticket.created_at).total_seconds())
+                # 🔥 FORMAT BARU (HUMAN FRIENDLY)
+                days = duration_sec // 86400
+                hours = (duration_sec % 86400) // 3600
+                minutes = (duration_sec % 3600) // 60
+
+                duration_str = []
+
+                if days:
+                    duration_str.append(f"{days}d")
+                if hours:
+                    duration_str.append(f"{hours}h")
+                if minutes:
+                    duration_str.append(f"{minutes}m")
+
+                duration_str = " ".join(duration_str)
+
+                # 🔥 UPDATE pakai query (ANTI ERROR)
+                await session.execute(
+                    update(Ticket)
+                    .where(Ticket.id == ticket.id)
+                    .values(
+                        status="RESOLVED",
+                        resolved_at=now,
+                        
+                        
+                    )
+                )
+
+                await session.commit()
+
+                print(f"✅ RESOLVED ticket {ticket.id}")
+
+                return {
+                    "ticket_id": ticket.id,
+                    "duration": duration_str,
+                    "acknowledged_by": ticket.acknowledged_by
+                }
+
+            except Exception as e:
+                print("❌ Resolve error:", e)
+                return None
+            
+            
+            

@@ -37,9 +37,23 @@ class ZTESimulator(OLTDevice):
         for i in range(1, self.ONU_TOTAL + 1):
 
             state = self.onu_state[i]
+            
+            
+            
+            # ===== STATUS CHANGE (SMART) =====
+            if state["status"] == "ONLINE":
+                if random.random() < 0.2:  # lebih sering drop
+                    state["status"] = "OFFLINE"
+                    state["power"] = None
+            else:
+                if random.random() < 0.6:  # lebih cepat recovery 🔥
+                    state["status"] = "ONLINE"
+                    state["power"] = round(random.uniform(-24, -20), 2)
+                        
+            
 
             # ===== STATUS CHANGE (jarang) =====
-            if random.random() < 0.05:  # 5% chance berubah
+            if random.random() < 0.3:  # 5% chance berubah
                 if state["status"] == "ONLINE":
                     state["status"] = "OFFLINE"
                     state["power"] = None

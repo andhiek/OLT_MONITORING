@@ -41,36 +41,64 @@ class AlarmCorrelationService:
             # =============================
             down_alerts = [a for a in olt_alerts if a.get("status") == "DOWN"]
 
-            # =============================
-            # DETERMINE ROOT
-            # =============================
+            prev_root = cls._active_root_alarms.get(olt_id)
+
+            root_alarm = None
+            root_device_id = None
+            root_label = None
+
             if down_alerts:
                 sorted_alerts = sorted(
                     down_alerts,
                     key=lambda a: cls._priority(a),
                     reverse=True
                 )
-                root_alarm = sorted_alerts[0]
+
+                # 🔥 PRIORITAS FIBER CUT
+                fiber = [a for a in down_alerts if a.get("event") == "FIBER_CUT"]
+
+                if fiber:
+                    root_alarm = fiber[0]
+
+                elif prev_root:
+                    root_alarm = next(
+                        (a for a in down_alerts if a["device_id"] == prev_root),
+                        None
+                    )
+
+                    if not root_alarm:
+                        root_alarm = sorted_alerts[0]
+
+                else:
+                    root_alarm = sorted_alerts[0]
+
                 root_device_id = root_alarm["device_id"]
                 cls._active_root_alarms[olt_id] = root_device_id
+                
+                root_label = root_alarm.get("event") if root_alarm else None
+                
+
             else:
                 # 🔥 semua UP → clear root
                 cls._active_root_alarms.pop(olt_id, None)
-                root_device_id = None
-                root_alarm = None
+            # =============================
+            # 🔥 DEBUG DI SINI
+            # =============================
+            print(f"[CORRELATION] OLT {olt_id}")
+            print(f"DOWN ALERTS: {len(down_alerts)}")
+            print(f"DEVICES: {[a['device_id'] for a in olt_alerts]}")
+            print(f"ROOT: {root_device_id}")
+            print(f"ROOT LABEL: {root_label}")
+            print("-" * 40)
 
-            prev_root = cls._active_root_alarms.get(olt_id)
-
-            if prev_root and any(a["device_id"] == prev_root for a in olt_alerts):
-                root_device_id = prev_root
-
+            
             # =============================
             # BUILD RESULT
             # =============================
             for alert in olt_alerts:
 
                 device_id = alert["device_id"]
-                clean_msg = alert["message"].replace("🚨 ", "").replace("✅ ", "")
+                clean_msg = alert.get("message", "").lstrip("🚨 ").lstrip("✅ ")
 
                 if root_device_id and device_id == root_device_id:
                     results.append({
@@ -84,7 +112,7 @@ class AlarmCorrelationService:
                         **alert,
                         "is_root": False,
                         "root_cause_id": root_device_id,
-                        "root_label": root_alarm.get("event") if root_alarm else None,
+                        "root_label": root_label,
                     })
 
         return results
@@ -100,14 +128,17 @@ class AlarmCorrelationService:
 
         score = 0
 
-        if "olt" in msg:
-            score += 100
+        event = alert.get("event")
+        device_type = alert.get("device_type")
 
-        if severity == "CRITICAL":
+        if event == "OLT_OFFLINE":
+            score += 200
+
+        elif event == "FIBER_CUT":
+            score += 150
+
+        elif device_type == "ONU":
             score += 50
-        elif severity == "MAJOR":
-            score += 30
-        elif severity == "MINOR":
-            score += 10
-
+            
+            
         return score

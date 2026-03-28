@@ -5,7 +5,7 @@ class AlarmService:
     POWER_LOW_THRESHOLD = -28
     POWER_RECOVER_THRESHOLD = -26
 
-    STATUS_STABLE_COUNT = 2
+    STATUS_STABLE_COUNT = 1
     POWER_STABLE_COUNT = 2
 
     previous_state = {}
@@ -83,6 +83,8 @@ class AlarmService:
             # =============================
             if current_status != state["status"]:
                 state["status_counter"] += 1
+                
+                print(f"[STATE CHANGE] ONU {onu_id}: {state['status']} → {current_status}")
 
                 if state["status_counter"] >= cls.STATUS_STABLE_COUNT:
                     state["status"] = current_status
@@ -270,3 +272,6 @@ class AlarmService:
                     olt_fiber[port] = "NORMAL"
 
         return events
+    
+    
+    

@@ -74,6 +74,11 @@ class MonitoringService:
             print("RAW ALERTS:")
             for a in alerts:
                 print(a)
+                
+                
+            print("ONU LIST:")
+            for o in normalized:
+                print(f"ONU {o['id']} STATUS {o['status']}")
 
             # =============================
             # 4. FLAP GUARD
