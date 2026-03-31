@@ -193,36 +193,45 @@ async def process_olt(bot, olt):
             # UP → RESOLVE
             # =========================
             elif alert.get("status") == "UP":
+                if (
+                        alert.get("event") == "ONU_ONLINE"
+                        and not alert.get("is_root")
+                        and alert.get("root_label") == "ONU_OFFLINE"
+                    ):
 
-                if device_type == "ONU":
-                    onu_uuid = onu_mapping.get(str(device_id))
+                        if device_type == "ONU":
+                            onu_uuid = onu_mapping.get(str(device_id))
 
-                    if not onu_uuid:
-                        continue
+                            if not onu_uuid:
+                                continue
+                            
 
-                    print(f"🔄 Resolving ONU {device_id}")
+                            print(f"🔄 Resolving ONU {device_id}")
 
-                    # ✅ 1. resolve alarm (INI SUMBER UTAMA)
-                    resolved = await resolve_alarm(
-                        olt,
-                        onu_uuid,
-                        "ONU_OFFLINE"   # 🔥 FIX: jangan pakai alert.get("event")
-                    )
+                            # ✅ 1. resolve alarm (INI SUMBER UTAMA)
+                            resolved = await resolve_alarm(
+                                olt,
+                                onu_uuid,
+                                "ONU_OFFLINE"   # 🔥 FIX: jangan pakai alert.get("event")
+                            )
 
-                    # ❗ kalau alarm tidak ditemukan → STOP
-                    if not resolved:
-                        print("⚠️ No alarm to resolve")
-                        continue
+                            # ❗ kalau alarm tidak ditemukan → STOP
+                            if not resolved:
+                                print("⚠️ No alarm to resolve")
+                                continue
 
-                    # ✅ 2. resolve ticket (FOLLOWER)
-                    ticket_resolved = await TicketService.resolve_ticket(
-                        onu_uuid,
-                        "ONU_OFFLINE"
-                    )
+                            # ✅ 2. resolve ticket (FOLLOWER)
+                            ticket_resolved = await TicketService.resolve_ticket(
+                                onu_uuid,
+                                "ONU_OFFLINE"
+                            )
 
-                    if ticket_resolved:
-                        resolved = ticket_resolved
-                        print(f"Resolve: {resolved}")
+                            if ticket_resolved:
+                                resolved = ticket_resolved
+                                print(f"Resolve: {resolved}")
+            
+            if alert.get("status") == "UP" and not resolved:
+                continue
 
             # =========================
             # FORMAT
@@ -241,7 +250,9 @@ async def process_olt(bot, olt):
             # =========================
             keyboard = None
 
-            if alert.get("status") == "DOWN":
+            if alert.get("status") == "DOWN" and alert.get("is_root"):
+                
+                alarm_id = alert.get("alarm_id")
                 
                 if not alarm_id:
                     print("❌ SKIP: alarm_id kosong")
@@ -258,7 +269,7 @@ async def process_olt(bot, olt):
                     ]
                 )
 
-                print(f"Generated keyboard: {alarm_id}")
+                #print(f"Generated keyboard: {alarm_id}")
 
             await bot.send_message(
                 olt.client.telegram_chat_id,

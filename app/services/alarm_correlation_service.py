@@ -84,12 +84,12 @@ class AlarmCorrelationService:
             # =============================
             # 🔥 DEBUG DI SINI
             # =============================
-            print(f"[CORRELATION] OLT {olt_id}")
+            '''print(f"[CORRELATION] OLT {olt_id}")
             print(f"DOWN ALERTS: {len(down_alerts)}")
             print(f"DEVICES: {[a['device_id'] for a in olt_alerts]}")
             print(f"ROOT: {root_device_id}")
             print(f"ROOT LABEL: {root_label}")
-            print("-" * 40)
+            print("-" * 40)'''
 
             
             # =============================

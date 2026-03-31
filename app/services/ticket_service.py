@@ -20,22 +20,26 @@ class TicketService:
             device_id = str(alert.get("device_id"))
 
             alarm_id = str(
-                alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}"
-            )
+                        alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}"
+                    )
 
             from sqlalchemy import select
 
             # 🔥 1. CEK DUPLIKAT DULU
             existing = await session.execute(
-                select(Ticket).where(Ticket.alarm_id == alarm_id)
+                select(Ticket).where(
+                    Ticket.onu_id == onu_uuid,
+                    Ticket.event == alert.get("event"),
+                    Ticket.status.in_(["OPEN", "ACK"])
+                )
             )
             existing_ticket = existing.scalar()
 
             if existing_ticket:
-                print(f"⚠️ DUPLICATE BLOCKED: {alarm_id}")
+                print(f"⚠️ DUPLICATE BLOCKED: {existing_ticket.alarm_id}")
                 return {
                     "ticket_id": existing_ticket.id,
-                    "alarm_id": alarm_id
+                    "alarm_id": existing_ticket.alarm_id
                 }
 
             # 🔥 2. BARU CREATE
@@ -108,9 +112,14 @@ class TicketService:
                 
     
     
+    # =============================
+    # CORRELATION LOGIC resolve
+    # =============================
     @staticmethod
-    async def resolve_ticket(onu_uuid, event):
+    async def resolve_ticket(onu_uuid,event):
         async with async_session() as session:
+            if onu_uuid and not isinstance(onu_uuid, PyUUID):
+                onu_uuid = PyUUID(str(onu_uuid))
             try:
                 from sqlalchemy import select, update
 
@@ -131,24 +140,29 @@ class TicketService:
                 if not ticket:
                     print(f"⚠️ No active ticket for ONU {onu_uuid}")
                     return None
+                
+                
 
                 now = datetime.utcnow()
+                
                 duration_sec = int((now - ticket.created_at).total_seconds())
+                
                 # 🔥 FORMAT BARU (HUMAN FRIENDLY)
                 days = duration_sec // 86400
                 hours = (duration_sec % 86400) // 3600
                 minutes = (duration_sec % 3600) // 60
 
-                duration_str = []
+                parts = []
 
                 if days:
-                    duration_str.append(f"{days}d")
+                    parts.append(f"{days}d")
                 if hours:
-                    duration_str.append(f"{hours}h")
+                    parts.append(f"{hours}h")
                 if minutes:
-                    duration_str.append(f"{minutes}m")
+                    parts.append(f"{minutes}m")
 
-                duration_str = " ".join(duration_str)
+                duration_str = " ".join(parts) if parts else "0m"
+                
 
                 # 🔥 UPDATE pakai query (ANTI ERROR)
                 await session.execute(
@@ -157,10 +171,12 @@ class TicketService:
                     .values(
                         status="RESOLVED",
                         resolved_at=now,
-                        
+                        duration=duration_sec, # 🔥 SIMPAN KE DB
+                        acknowledged_by=ticket.acknowledged_by or "SYSTEM AUTO RESOLVE "
                         
                     )
                 )
+                
 
                 await session.commit()
 
@@ -171,6 +187,8 @@ class TicketService:
                     "duration": duration_str,
                     "acknowledged_by": ticket.acknowledged_by
                 }
+                
+                
 
             except Exception as e:
                 print("❌ Resolve error:", e)
