@@ -6,7 +6,9 @@ from app.db.models.ticket import Ticket
 
 
 from uuid import UUID as PyUUID
-
+STATUS_OPEN = "OPEN"
+STATUS_ACK = "ACK"
+STATUS_RESOLVED = "RESOLVED"
 class TicketService:
 
     @staticmethod
@@ -37,10 +39,7 @@ class TicketService:
 
             if existing_ticket:
                 print(f"⚠️ DUPLICATE BLOCKED: {existing_ticket.alarm_id}")
-                return {
-                    "ticket_id": existing_ticket.id,
-                    "alarm_id": existing_ticket.alarm_id
-                }
+                return None
 
             # 🔥 2. BARU CREATE
             print(f"🎯 Creating ticket: {alarm_id}")
@@ -81,34 +80,54 @@ class TicketService:
                 
         async with async_session() as session:
             
-            try:
-                stmt = (
-                    update(Ticket)
-                    .where(Ticket.alarm_id == alarm_id)
-                    .values(
-                        status="ACK",
-                        acknowledged_by=user_name,
-                        acknowledged_at=datetime.utcnow()
-                    )
-                    .returning(Ticket.id)
-                )
+            from sqlalchemy import select , update
+            
+            # 🔍 1. ambil ticket dulu
+            result = await session.execute(
+                select(Ticket).where(Ticket.alarm_id == alarm_id)
+            )
+            ticket = result.scalar()
+            
+            # ❌ tidak ditemukan
+            if not ticket:
+                print(f"⚠️ No ticket found for alarm_id {alarm_id}")
+                return {"status": "MOT FOUND"}
+        
+            
+            # ⚠️ sudah resolved
+            if str(ticket.status) == "RESOLVED":
+                print(f"⚠️ Ticket {ticket.id} already RESOLVED")
+                return {"status": "RESOLVED"}
 
-                result = await session.execute(stmt)
-                updated = result.fetchone()
-
-                await session.commit()
-
-                if not updated:
-                    print(f"⚠️ No ticket found for alarm_id={alarm_id}")
-                    return False
-                else:
-                    print(f"🎫 Ticket ACK: {alarm_id} by {user_name}")
-                    
-                    return updated[0]
-
-            except Exception as e:
-                print("❌ Ticket ACK error:", e)
+            if str(ticket.status) == "ACK":
+                print(f"⚠️ Ticket {ticket.id} already ACKNOWLEDGED")
+                return {"status": "ALREADY_ACK"}
+            
+            print(type(ticket.status), ticket.status)
                 
+            # ✅ 2. update ke ACK
+            await session.execute(
+                update(Ticket)
+                .where(Ticket.id == ticket.id)
+                .values(
+                    status = "ACK",
+                    acknowledged_by = user_name if user_name else "SYSTEM",
+                    acknowledged_at = datetime.utcnow()
+                    
+                )
+            )
+            
+            
+            await session.commit()
+            
+            print(f"🎫 Ticket ACK: {alarm_id} by {user_name}")
+            
+            return {
+                "status": "SUCCESS",
+                "ticket_id": ticket.id
+            }
+                
+            
                 
     
     
@@ -128,7 +147,7 @@ class TicketService:
                     select(Ticket)
                     .where(
                         Ticket.onu_id == onu_uuid,
-                        Ticket.event == "ONU_OFFLINE",
+                        Ticket.event == "ONU_OFFLINE", # pastikan kta resolve berdasarkan event DOWN yang sesuai
                         Ticket.status.in_(["OPEN", "ACK"])
                     )
                     .order_by(Ticket.created_at.desc())
@@ -138,7 +157,7 @@ class TicketService:
                 ticket = result.scalar()
 
                 if not ticket:
-                    print(f"⚠️ No active ticket for ONU {onu_uuid}")
+                    print(f"⚠️ No ACTIVE ticket for ONU {onu_uuid}")
                     return None
                 
                 
@@ -163,7 +182,8 @@ class TicketService:
 
                 duration_str = " ".join(parts) if parts else "0m"
                 
-
+                
+                
                 # 🔥 UPDATE pakai query (ANTI ERROR)
                 await session.execute(
                     update(Ticket)
@@ -172,7 +192,7 @@ class TicketService:
                         status="RESOLVED",
                         resolved_at=now,
                         duration=duration_sec, # 🔥 SIMPAN KE DB
-                        acknowledged_by=ticket.acknowledged_by or "SYSTEM AUTO RESOLVE "
+                        
                         
                     )
                 )
@@ -182,10 +202,17 @@ class TicketService:
 
                 print(f"✅ RESOLVED ticket {ticket.id}")
 
+                ack = ticket.acknowledged_by
+
+                if not str(ack) or str(ack).lower() == "none":
+                    handled_by = "SYSTEM"
+                else:
+                    handled_by = str(ack)
+
                 return {
                     "ticket_id": ticket.id,
                     "duration": duration_str,
-                    "acknowledged_by": ticket.acknowledged_by
+                    "handled_by": handled_by
                 }
                 
                 

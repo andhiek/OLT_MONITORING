@@ -65,8 +65,9 @@ def format_telegram(alert, olt_name, ticket_id=None, resolved=None):
 
         if resolved:
             text += f"\nDuration: {resolved['duration']}"
-            if resolved.get("acknowledged_by"):
-                text += f"\nHandled : {resolved['acknowledged_by']}"
+
+            handled_by = resolved.get("handled_by", "SYSTEM")
+            text += f"\nHandled : {handled_by}"                
 
         text += f"\n\nTime    : {now}"
         return text
@@ -173,8 +174,9 @@ async def process_olt(bot, olt):
                     alert
                 )
 
-                ticket_id = result["ticket_id"]
-                alarm_id = result["alarm_id"]
+                if not result:
+                    print("Ticket creation skipped (duplicate)")
+                    continue
 
                 # 🔥 inject ke alert
                 alert["alarm_id"] = alarm_id
