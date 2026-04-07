@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI
 import app.db.models
 from app.database.connection import engine
@@ -8,6 +9,6 @@ app = FastAPI()
 from app.api.dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="/api")
 
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(start_bot())  # 🔥 penting!

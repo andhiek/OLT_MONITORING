@@ -4,6 +4,7 @@ from sqlalchemy import func
 from app.db.session import AsyncSessionLocal
 from app.db.models.ticket import Ticket
 from sqlalchemy import select
+from app.services.state_cache import STATE
 
 router = APIRouter()
 
@@ -34,26 +35,28 @@ async def get_tickets():
 
 @router.get("/dashboard")
 async def get_dashboard():
-    async with AsyncSessionLocal() as session:
 
-        total = await session.scalar(select(func.count(Ticket.id))) or 0
+    total_onu = 0
+    online = 0
+    offline = 0
+    total_alarms = 0
 
-        open_tickets = await session.scalar(
-            select(func.count()).where(Ticket.status == "OPEN")
-        ) or 0
+    for olt_id, data in STATE["olts"].items():
 
-        closed_tickets = await session.scalar(
-            select(func.count()).where(Ticket.status == "CLOSED")
-        ) or 0
+        onu_list = data.get("onu_list", [])
+        alerts = data.get("alerts", [])
 
-        health = "UNKNOWN"
+        total_onu += len(onu_list)
+        online += sum(1 for o in onu_list if o.get("status") == "ONLINE")
+        offline += sum(1 for o in onu_list if o.get("status") == "OFFLINE")
 
-        if open_tickets is not None:
-            health = "GOOD" if open_tickets < 10 else "WARNING"
+        total_alarms += len(alerts)
 
-        return {
-            "total_tickets": total,
-            "open_tickets": open_tickets,
-            "closed_tickets": closed_tickets,
-            "health": health
-        }
+    return {
+        "onu_total": total_onu,
+        "onu_online": online,
+        "onu_offline": offline,
+        "active_alarms": total_alarms,
+        "olt_count": len(STATE["olts"]),
+        "last_update": str(STATE["last_update"])
+    }

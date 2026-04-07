@@ -3,6 +3,8 @@
 import os
 from dotenv import load_dotenv
 
+from app.services.state_cache import update_olt_state
+
 from app.core.normalizer import normalize_onu
 from app.snmp.zte_simulator import ZTESimulator
 from app.snmp.zte_c320 import ZTEC320
@@ -145,23 +147,25 @@ class MonitoringService:
             # =============================
             # 7. OUTPUT
             # =============================
-            print("FINAL OUTPUT:")
-            for a in correlated_alerts:
-                print(a["message"], "| root:", a.get("is_root"))
-
-            return {
+            result = {
                 "olt_id": self.olt.id,
                 "olt_status": olt_status,
                 "onu_list": normalized,
                 "alerts": correlated_alerts
             }
 
+            # 🔥 simpan ke cache
+            update_olt_state(self.olt.id, result)
+
+            return result
+            
+            
+            
+
         except Exception as e:
             print("❌ Monitoring error:", e)
 
-            return {
-                "olt_id": self.olt.id,
-                "olt_status": None,
-                "onu_list": [],
-                "alerts": []
-            }
+            # 🔥 tetap update cache walaupun error
+            update_olt_state(self.olt.id, result)
+
+            return result
