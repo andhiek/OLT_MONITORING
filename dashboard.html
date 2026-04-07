@@ -1,0 +1,53 @@
+''' NOC Dashboard API ''''
+
+<!doctype html>
+<html>
+  <head>
+    <title>NOC Dashboard</title>
+  </head>
+  <body>
+    <h2>📡 Ticket Dashboard</h2>
+
+    <table border="1" id="ticketTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>ONU</th>
+          <th>Event</th>
+          <th>Status</th>
+          <th>Handled By</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <script>
+      async function loadTickets() {
+        const res = await fetch("http://localhost:8000/api/tickets");
+        const data = await res.json();
+
+        const tbody = document.querySelector("#ticketTable tbody");
+        tbody.innerHTML = "";
+
+        data.forEach((t) => {
+          const row = `
+            <tr>
+                <td>${t.id}</td>
+                <td>${t.onu_id}</td>
+                <td>${t.event}</td>
+                <td>${t.status}</td>
+                <td>${t.ack_by || "-"}</td>
+                <td>${t.created_at}</td>
+            </tr>
+        `;
+          tbody.innerHTML += row;
+        });
+      }
+
+      // auto refresh tiap 5 detik
+      setInterval(loadTickets, 5000);
+      loadTickets();
+    </script>
+  </body>
+</html>

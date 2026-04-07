@@ -173,11 +173,15 @@ async def process_olt(bot, olt):
                     onu_uuid,
                     alert
                 )
+                
 
                 if not result:
                     print("Ticket creation skipped (duplicate)")
                     continue
 
+                ticket_id = result.get("ticket_id") if result else None
+                alarm_id = result.get("alarm_id") if result else None
+                
                 # 🔥 inject ke alert
                 alert["alarm_id"] = alarm_id
                 alert["ticket_id"] = str(ticket_id)
@@ -219,7 +223,7 @@ async def process_olt(bot, olt):
 
                             # ❗ kalau alarm tidak ditemukan → STOP
                             if not resolved:
-                                print("⚠️ No alarm to resolve")
+                                
                                 continue
 
                             # ✅ 2. resolve ticket (FOLLOWER)

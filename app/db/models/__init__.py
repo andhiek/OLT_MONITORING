@@ -2,6 +2,7 @@
 
 
 from .client import Client
+from .ticket import Ticket
 from .user import User
 from .olt import OLT
 from .onu import ONU

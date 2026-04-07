@@ -39,7 +39,10 @@ class TicketService:
 
             if existing_ticket:
                 print(f"⚠️ DUPLICATE BLOCKED: {existing_ticket.alarm_id}")
-                return None
+                return {
+                    "ticket_id": existing_ticket.id,
+                    "alarm_id": existing_ticket.alarm_id
+                }
 
             # 🔥 2. BARU CREATE
             print(f"🎯 Creating ticket: {alarm_id}")
