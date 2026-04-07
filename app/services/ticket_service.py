@@ -6,7 +6,9 @@ from app.db.models.ticket import Ticket
 
 
 from uuid import UUID as PyUUID
-
+STATUS_OPEN = "OPEN"
+STATUS_ACK = "ACK"
+STATUS_RESOLVED = "RESOLVED"
 class TicketService:
 
     @staticmethod
@@ -16,17 +18,38 @@ class TicketService:
             if onu_uuid:
                 if not isinstance(onu_uuid, PyUUID):
                     onu_uuid = PyUUID(str(onu_uuid))
-                    
-                    
+
             device_id = str(alert.get("device_id"))
 
             alarm_id = str(
-                alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}"
+                        alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}"
+                    )
+
+            from sqlalchemy import select
+
+            # 🔥 1. CEK DUPLIKAT DULU
+            existing = await session.execute(
+                select(Ticket).where(
+                    Ticket.onu_id == onu_uuid,
+                    Ticket.event == alert.get("event"),
+                    Ticket.status.in_(["OPEN", "ACK"])
+                )
             )
+            existing_ticket = existing.scalar()
+
+            if existing_ticket:
+                print(f"⚠️ DUPLICATE BLOCKED: {existing_ticket.alarm_id}")
+                return {
+                    "ticket_id": existing_ticket.id,
+                    "alarm_id": existing_ticket.alarm_id
+                }
+
+            # 🔥 2. BARU CREATE
+            print(f"🎯 Creating ticket: {alarm_id}")
 
             ticket = Ticket(
-                olt_id=olt.id,  # ✅ langsung
-                onu_id=onu_uuid,  # ✅ sudah clean UUID
+                olt_id=olt.id,
+                onu_id=onu_uuid,
                 device_id=device_id,
                 alarm_id=alarm_id,
                 event=alert.get("event"),
@@ -40,45 +63,166 @@ class TicketService:
             await session.refresh(ticket)
             await session.commit()
 
-            # menambahkan print untuk debuging
-            print(f"🎫 Ticket CREATED: {ticket.id}")
-            print("FINAL TYPE onu_id:", type(onu_uuid))
-            print("TYPE onu_uuid FINAL:", type(onu_uuid))
-            print("VALUE onu_uuid:", onu_uuid)
-            return ticket.id
+            # 🔥 3. WAJIB RETURN
+            return {
+                "ticket_id": ticket.id,
+                "alarm_id": alarm_id
+            }
+            
         
         
     @staticmethod
     async def acknowledge_ticket(alarm_id, user_name):
+        alarm_id = str(alarm_id).strip() # 🔥 SAFETY CONVERSION
+        
+        
         if not alarm_id:
-            print("❌ Invalid alarm_id")
-            return
-
+                    print("❌ Invalid alarm_id")
+                    return "NOT FOUND"
+                
+                
         async with async_session() as session:
+            
+            from sqlalchemy import select , update
+            
+            # 🔍 1. ambil ticket dulu
+            result = await session.execute(
+                select(Ticket).where(Ticket.alarm_id == alarm_id)
+            )
+            ticket = result.scalar()
+            
+            # ❌ tidak ditemukan
+            if not ticket:
+                print(f"⚠️ No ticket found for alarm_id {alarm_id}")
+                return {"status": "MOT FOUND"}
+        
+            
+            # ⚠️ sudah resolved
+            if str(ticket.status) == "RESOLVED":
+                print(f"⚠️ Ticket {ticket.id} already RESOLVED")
+                return {"status": "RESOLVED"}
+
+            if str(ticket.status) == "ACK":
+                print(f"⚠️ Ticket {ticket.id} already ACKNOWLEDGED")
+                return {"status": "ALREADY_ACK"}
+            
+            print(type(ticket.status), ticket.status)
+                
+            # ✅ 2. update ke ACK
+            await session.execute(
+                update(Ticket)
+                .where(Ticket.id == ticket.id)
+                .values(
+                    status = "ACK",
+                    acknowledged_by = user_name if user_name else "SYSTEM",
+                    acknowledged_at = datetime.utcnow()
+                    
+                )
+            )
+            
+            
+            await session.commit()
+            
+            print(f"🎫 Ticket ACK: {alarm_id} by {user_name}")
+            
+            return {
+                "status": "SUCCESS",
+                "ticket_id": ticket.id
+            }
+                
+            
+                
+    
+    
+    # =============================
+    # CORRELATION LOGIC resolve
+    # =============================
+    @staticmethod
+    async def resolve_ticket(onu_uuid,event):
+        async with async_session() as session:
+            if onu_uuid and not isinstance(onu_uuid, PyUUID):
+                onu_uuid = PyUUID(str(onu_uuid))
             try:
-                stmt = (
-                    update(Ticket)
-                    .where(Ticket.alarm_id == alarm_id)
-                    .values(
-                        status="ACK",
-                        acknowledged_by=user_name,
-                        acknowledged_at=datetime.utcnow()
+                from sqlalchemy import select, update
+
+                # 🔥 cari ticket aktif
+                result = await session.execute(
+                    select(Ticket)
+                    .where(
+                        Ticket.onu_id == onu_uuid,
+                        Ticket.event == "ONU_OFFLINE", # pastikan kta resolve berdasarkan event DOWN yang sesuai
+                        Ticket.status.in_(["OPEN", "ACK"])
                     )
-                    .returning(Ticket.id)
+                    .order_by(Ticket.created_at.desc())
+                    .limit(1)
                 )
 
-                result = await session.execute(stmt)
-                updated = result.fetchone()
+                ticket = result.scalar()
+
+                if not ticket:
+                    print(f"⚠️ No ACTIVE ticket for ONU {onu_uuid}")
+                    return None
+                
+                
+
+                now = datetime.utcnow()
+                
+                duration_sec = int((now - ticket.created_at).total_seconds())
+                
+                # 🔥 FORMAT BARU (HUMAN FRIENDLY)
+                days = duration_sec // 86400
+                hours = (duration_sec % 86400) // 3600
+                minutes = (duration_sec % 3600) // 60
+
+                parts = []
+
+                if days:
+                    parts.append(f"{days}d")
+                if hours:
+                    parts.append(f"{hours}h")
+                if minutes:
+                    parts.append(f"{minutes}m")
+
+                duration_str = " ".join(parts) if parts else "0m"
+                
+                
+                
+                # 🔥 UPDATE pakai query (ANTI ERROR)
+                await session.execute(
+                    update(Ticket)
+                    .where(Ticket.id == ticket.id)
+                    .values(
+                        status="RESOLVED",
+                        resolved_at=now,
+                        duration=duration_sec, # 🔥 SIMPAN KE DB
+                        
+                        
+                    )
+                )
+                
 
                 await session.commit()
 
-                if not updated:
-                    print(f"⚠️ No ticket found for alarm_id={alarm_id}")
+                print(f"✅ RESOLVED ticket {ticket.id}")
+
+                ack = ticket.acknowledged_by
+
+                if not str(ack) or str(ack).lower() == "none":
+                    handled_by = "SYSTEM"
                 else:
-                    print(f"🎫 Ticket ACK: {alarm_id} by {user_name}")
+                    handled_by = str(ack)
+
+                return {
+                    "ticket_id": ticket.id,
+                    "duration": duration_str,
+                    "handled_by": handled_by
+                }
+                
+                
 
             except Exception as e:
-                print("❌ Ticket ACK error:", e)
-                
-                
-    
+                print("❌ Resolve error:", e)
+                return None
+            
+            
+            

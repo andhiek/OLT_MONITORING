@@ -65,8 +65,9 @@ def format_telegram(alert, olt_name, ticket_id=None, resolved=None):
 
         if resolved:
             text += f"\nDuration: {resolved['duration']}"
-            if resolved.get("acknowledged_by"):
-                text += f"\nHandled : {resolved['acknowledged_by']}"
+
+            handled_by = resolved.get("handled_by", "SYSTEM")
+            text += f"\nHandled : {handled_by}"                
 
         text += f"\n\nTime    : {now}"
         return text
@@ -93,7 +94,6 @@ async def process_olt(bot, olt):
     service = MonitoringService(olt)
 
     try:
-        # ✅ hanya sekali
         data = await service.get_status()
 
         onu_mapping = await save_onu_data(
@@ -117,19 +117,33 @@ async def process_olt(bot, olt):
         return
 
     # ===============================
-    # SEND TELEGRAM
+    # 🔥 DEDUP ALERT (ANTI SPAM)
+    # ===============================
+    seen = set()
+    unique_alerts = []
+
+    for alert in alerts:
+        key = f"{alert.get('device_id')}-{alert.get('event')}-{alert.get('status')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_alerts.append(alert)
+
+    alerts = unique_alerts
+    root_alerts = [a for a in alerts if a.get("is_root")]
+    # ===============================
+    # PROCESS ALERT
     # ===============================
     for alert in alerts:
 
-        # 🔥 SANITIZE
         alert["olt_id"] = str(alert.get("olt_id")) if alert.get("olt_id") else None
         alert["device_id"] = str(alert.get("device_id")) if alert.get("device_id") else None
 
-        print("🧪 DEBUG ALERT RAW:", alert)
+        print("🧪 DEBUG ALERT:", alert)
 
         try:
-            # ✅ hanya ROOT
-            if not alert.get("is_root"):
+            if not alert.get("is_root") and alert.get("status") != "UP":
+                
                 continue
 
             device_id = alert.get("device_id")
@@ -141,55 +155,89 @@ async def process_olt(bot, olt):
             resolved = None
 
             # =========================
-            # CREATE (DOWN)
+            # DOWN → CREATE
             # =========================
             if alert.get("status") == "DOWN":
 
                 if device_type != "ONU":
-                    print(f"⚠️ Skip non-ONU: {device_type}")
                     continue
 
                 onu_uuid = onu_mapping.get(str(device_id))
-
                 if not onu_uuid:
-                    print(f"⚠️ ONU UUID not found: {device_id}")
                     continue
 
                 print(f"🎯 Creating ticket for ONU {device_id}")
 
-                ticket_id = await TicketService.create_ticket(
+                result = await TicketService.create_ticket(
                     olt,
                     onu_uuid,
                     alert
                 )
                 
-                print(f" type ticket_id : {type(ticket_id)}")
 
-                alarm_id = await create_alarm(
+                if not result:
+                    print("Ticket creation skipped (duplicate)")
+                    continue
+
+                ticket_id = result.get("ticket_id") if result else None
+                alarm_id = result.get("alarm_id") if result else None
+                
+                # 🔥 inject ke alert
+                alert["alarm_id"] = alarm_id
+                alert["ticket_id"] = str(ticket_id)
+
+                # 🔥 save alarm pakai ID yang sama
+                await create_alarm(
                     olt,
                     onu_uuid,
                     alert.get("event"),
-                    alert.get("message")
+                    alert.get("message"),
+                    alarm_id=alarm_id
                 )
-                print(f"Alarm created with ID : {alarm_id}")
-                print(f" type alarm_id : {type(alarm_id)}")
-                print(f" Proses Resolve Alarm for ONU {device_id}")
+
             # =========================
-            # RESOLVE (UP)
+            # UP → RESOLVE
             # =========================
             elif alert.get("status") == "UP":
+                if (
+                        alert.get("event") == "ONU_ONLINE"
+                        and not alert.get("is_root")
+                        and alert.get("root_label") == "ONU_OFFLINE"
+                    ):
 
-                if device_type == "ONU":
-                    onu_uuid = onu_mapping.get(str(device_id))
+                        if device_type == "ONU":
+                            onu_uuid = onu_mapping.get(str(device_id))
 
-                    if not onu_uuid:
-                        continue
+                            if not onu_uuid:
+                                continue
+                            
 
-                    resolved = await resolve_alarm(
-                        olt,
-                        onu_uuid,
-                        alert.get("event")
-                    )
+                            print(f"🔄 Resolving ONU {device_id}")
+
+                            # ✅ 1. resolve alarm (INI SUMBER UTAMA)
+                            resolved = await resolve_alarm(
+                                olt,
+                                onu_uuid,
+                                "ONU_OFFLINE"   # 🔥 FIX: jangan pakai alert.get("event")
+                            )
+
+                            # ❗ kalau alarm tidak ditemukan → STOP
+                            if not resolved:
+                                
+                                continue
+
+                            # ✅ 2. resolve ticket (FOLLOWER)
+                            ticket_resolved = await TicketService.resolve_ticket(
+                                onu_uuid,
+                                "ONU_OFFLINE"
+                            )
+
+                            if ticket_resolved:
+                                resolved = ticket_resolved
+                                print(f"Resolve: {resolved}")
+            
+            if alert.get("status") == "UP" and not resolved:
+                continue
 
             # =========================
             # FORMAT
@@ -200,15 +248,21 @@ async def process_olt(bot, olt):
                 ticket_id=ticket_id,
                 resolved=resolved
             )
-            
-            print("Formatted Telegram Text: ",text)
+
+            print("Formatted Telegram Text:", text)
 
             # =========================
-            # BUTTON
+            # BUTTON (ONLY FOR DOWN)
             # =========================
             keyboard = None
-            if alarm_id:
-                alarm_id = str(alarm_id)  # 🔥 FINAL SAFETY
+
+            if alert.get("status") == "DOWN" and alert.get("is_root"):
+                
+                alarm_id = alert.get("alarm_id")
+                
+                if not alarm_id:
+                    print("❌ SKIP: alarm_id kosong")
+                    continue
 
                 keyboard = InlineKeyboardMarkup(
                     inline_keyboard=[
@@ -221,7 +275,7 @@ async def process_olt(bot, olt):
                     ]
                 )
 
-            print("🧪 FINAL TEXT:", text)
+                #print(f"Generated keyboard: {alarm_id}")
 
             await bot.send_message(
                 olt.client.telegram_chat_id,
@@ -229,8 +283,10 @@ async def process_olt(bot, olt):
                 reply_markup=keyboard
             )
 
+            print(f"📨 Telegram sent | {alert.get('event')} | device={device_id}")
+
         except Exception as e:
-            print(f"Telegram error ({olt.name}): {e}")
+            print(f"❌ Telegram error ({olt.name}): {e}")
 
 
 # ===============================
@@ -286,3 +342,6 @@ async def monitoring_loop(bot):
                             print("Telegram FiberCut error:", e)
 
         await asyncio.sleep(30)
+        
+        
+        
