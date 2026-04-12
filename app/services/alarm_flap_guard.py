@@ -7,58 +7,49 @@ from collections import defaultdict
 class AlarmFlapGuard:
     """
     Anti-flapping protection:
-    - DOWN harus stabil beberapa detik / cycle
-    - UP juga harus stabil sebelum clear alarm
+    - DOWN cepat trigger (responsif)
+    - UP butuh konfirmasi (anti spam recovery)
+    - pakai sliding time window
     """
 
-    # history status per device
     _history = defaultdict(list)
 
-    # config (bisa kamu pindah ke .env nanti)
-    DOWN_THRESHOLD = 2   # berapa kali DOWN berturut-turut
-    UP_THRESHOLD = 2     # berapa kali UP berturut-turut
-    TIME_WINDOW = 120    # detik (opsional cleanup)
+    DOWN_THRESHOLD = 1   # langsung trigger
+    UP_THRESHOLD = 1     # butuh 2x UP stabil
+    TIME_WINDOW = 30     # detik
+
+    # =============================
+    # PUBLIC API
+    # =============================
 
     @classmethod
     def should_trigger_down(cls, device_id, status):
-        """
-        Return True kalau status DOWN dianggap valid (bukan flapping)
-        """
-
         cls._record(device_id, status)
 
         recent = cls._get_recent(device_id)
 
-        # cek apakah DOWN stabil
-        if len(recent) < cls.DOWN_THRESHOLD:
-            return False
+        down_seq = cls._count_tail(recent, "DOWN")
 
-        if all(s == "DOWN" for s in recent[-cls.DOWN_THRESHOLD:]):
-            return True
+        print(f"[FLAP] DOWN {device_id} seq={down_seq}")
 
-        return False
+        return down_seq >= cls.DOWN_THRESHOLD
 
     @classmethod
     def should_clear(cls, device_id, status):
-        """
-        Return True kalau status UP dianggap stabil
-        """
-
         cls._record(device_id, status)
 
         recent = cls._get_recent(device_id)
 
-        if len(recent) < cls.UP_THRESHOLD:
-            return False
+        up_seq = cls._count_tail(recent, "UP")
 
-        if all(s == "UP" for s in recent[-cls.UP_THRESHOLD:]):
-            return True
+        print(f"[FLAP] UP {device_id} seq={up_seq}")
 
-        return False
+        return up_seq >= cls.UP_THRESHOLD
 
     # =============================
     # INTERNAL
     # =============================
+
     @classmethod
     def _record(cls, device_id, status):
         now = time.time()
@@ -76,12 +67,24 @@ class AlarmFlapGuard:
 
     @classmethod
     def _cleanup(cls, device_id):
-        """
-        buang history lama biar tidak makan memory
-        """
         now = time.time()
 
         cls._history[device_id] = [
             x for x in cls._history[device_id]
             if now - x["ts"] <= cls.TIME_WINDOW
         ]
+
+    @staticmethod
+    def _count_tail(sequence, target):
+        """
+        Hitung berapa kali status yang sama di bagian akhir
+        contoh:
+        [UP, DOWN, DOWN] → count_tail(DOWN) = 2
+        """
+        count = 0
+        for s in reversed(sequence):
+            if s == target:
+                count += 1
+            else:
+                break
+        return count

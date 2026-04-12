@@ -105,9 +105,7 @@ class MonitoringService:
                 else:
                     stable_alerts.append(a)
 
-            if not stable_alerts and alerts:
-                print("⚠️ Flap guard filtered all alerts, fallback to raw alerts")
-                stable_alerts = alerts
+        
 
             print("STABLE ALERTS:")
             for a in stable_alerts:

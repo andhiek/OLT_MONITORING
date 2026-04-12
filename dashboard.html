@@ -1,53 +1,113 @@
-''' NOC Dashboard API ''''
-
 <!doctype html>
 <html>
   <head>
-    <title>NOC Dashboard</title>
+    <meta charset="UTF-8" />
+    <title>Fiber Monitor NMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <h2>📡 Ticket Dashboard</h2>
 
-    <table border="1" id="ticketTable">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>ONU</th>
-          <th>Event</th>
-          <th>Status</th>
-          <th>Handled By</th>
-          <th>Time</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+  <body class="bg-gray-100">
+    <!-- NAVBAR -->
+    <div class="bg-white shadow p-4 flex justify-between">
+      <h1 class="font-bold text-xl">🌐 Fiber Monitor</h1>
+      <div id="stats">Loading...</div>
+    </div>
+
+    <div class="p-6 space-y-6">
+      <!-- SUMMARY -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="bg-white p-4 rounded shadow">ONU Total: <b id="onu_total">0</b></div>
+        <div class="bg-white p-4 rounded shadow">Online: <b id="onu_online">0</b></div>
+        <div class="bg-white p-4 rounded shadow">Offline: <b id="onu_offline">0</b></div>
+        <div class="bg-white p-4 rounded shadow">Alerts: <b id="alarms">0</b></div>
+      </div>
+
+      <!-- OLT -->
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-bold mb-3">OLT Status</h2>
+        <div id="olts">Loading...</div>
+      </div>
+
+      <!-- ALERT -->
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-bold mb-3">🔥 Active Alerts</h2>
+        <div id="alerts">Loading...</div>
+      </div>
+
+      <div class="text-sm text-gray-500">Last update: <span id="last_update">-</span></div>
+    </div>
 
     <script>
-      async function loadTickets() {
-        const res = await fetch("http://localhost:8000/api/tickets");
-        const data = await res.json();
+      async function loadDashboard() {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/api/dashboard");
+          const data = await res.json();
 
-        const tbody = document.querySelector("#ticketTable tbody");
-        tbody.innerHTML = "";
+          document.getElementById("onu_total").innerText = data.onu_total;
+          document.getElementById("onu_online").innerText = data.onu_online;
+          document.getElementById("onu_offline").innerText = data.onu_offline;
+          document.getElementById("alarms").innerText = data.active_alarms;
+          document.getElementById("last_update").innerText = data.last_update;
 
-        data.forEach((t) => {
-          const row = `
-            <tr>
-                <td>${t.id}</td>
-                <td>${t.onu_id}</td>
-                <td>${t.event}</td>
-                <td>${t.status}</td>
-                <td>${t.ack_by || "-"}</td>
-                <td>${t.created_at}</td>
-            </tr>
-        `;
-          tbody.innerHTML += row;
-        });
+          document.getElementById("stats").innerText = `OLT: ${data.olt_count} | ONU: ${data.onu_total} | Alerts: ${data.active_alarms}`;
+        } catch (e) {
+          console.error("Dashboard error:", e);
+        }
       }
 
-      // auto refresh tiap 5 detik
-      setInterval(loadTickets, 5000);
-      loadTickets();
+      async function loadOlts() {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/api/olts");
+          const data = await res.json();
+
+          const el = document.getElementById("olts");
+          el.innerHTML = "";
+
+          data.forEach((o) => {
+            el.innerHTML += `
+          <div class="border p-3 rounded mb-2">
+            <b>${o.olt_name}</b><br>
+            ONU: ${o.onu_online}/${o.onu_total} | Alerts: ${o.active_alarms}
+          </div>
+        `;
+          });
+        } catch (e) {
+          console.error("OLT error:", e);
+        }
+      }
+
+      async function loadAlerts() {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/api/alerts");
+          const data = await res.json();
+
+          const el = document.getElementById("alerts");
+          el.innerHTML = "";
+
+          data.forEach((a) => {
+            const color = a.severity === "CRITICAL" ? "bg-red-100 border-red-400" : a.severity === "MAJOR" ? "bg-yellow-100 border-yellow-400" : "bg-green-100 border-green-400";
+
+            el.innerHTML += `
+          <div class="p-3 rounded border ${color} mb-2">
+            <div class="font-bold">${a.event}</div>
+            <div>${a.message}</div>
+            <div class="text-xs text-gray-500">Device: ${a.device_id}</div>
+          </div>
+        `;
+          });
+        } catch (e) {
+          console.error("Alerts error:", e);
+        }
+      }
+
+      function refreshAll() {
+        loadDashboard();
+        loadOlts();
+        loadAlerts();
+      }
+
+      setInterval(refreshAll, 5000);
+      refreshAll();
     </script>
   </body>
 </html>
