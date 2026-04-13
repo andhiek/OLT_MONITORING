@@ -21,30 +21,33 @@ class TicketService:
 
             device_id = str(alert.get("device_id"))
 
+            # 🔥 WAJIB: alarm_id HARUS UNIK PER INCIDENT
             alarm_id = str(
-                        alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}"
-                    )
+                alert.get("alarm_id") or f"{onu_uuid}-{alert.get('event')}-{int(datetime.utcnow().timestamp())}"
+            )
 
             from sqlalchemy import select
 
-            # 🔥 1. CEK DUPLIKAT DULU
+            # =============================
+            # ✅ DUPLICATE CHECK (PER ALARM_ID)
+            # =============================
             existing = await session.execute(
                 select(Ticket).where(
-                    Ticket.onu_id == onu_uuid,
-                    Ticket.event == alert.get("event"),
-                    Ticket.status.in_(["OPEN", "ACK"])
+                    Ticket.alarm_id == alarm_id
                 )
             )
             existing_ticket = existing.scalar()
 
             if existing_ticket:
-                print(f"⚠️ DUPLICATE BLOCKED: {existing_ticket.alarm_id}")
+                print(f"⚠️ DUPLICATE BLOCKED (same alarm_id): {alarm_id}")
                 return {
                     "ticket_id": existing_ticket.id,
                     "alarm_id": existing_ticket.alarm_id
                 }
 
-            # 🔥 2. BARU CREATE
+            # =============================
+            # 🚀 CREATE NEW TICKET (SELALU BOLEH)
+            # =============================
             print(f"🎯 Creating ticket: {alarm_id}")
 
             ticket = Ticket(
@@ -63,7 +66,6 @@ class TicketService:
             await session.refresh(ticket)
             await session.commit()
 
-            # 🔥 3. WAJIB RETURN
             return {
                 "ticket_id": ticket.id,
                 "alarm_id": alarm_id

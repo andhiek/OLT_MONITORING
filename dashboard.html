@@ -25,6 +25,7 @@
       <!-- OLT -->
       <div class="bg-white p-4 rounded shadow">
         <h2 class="font-bold mb-3">OLT Status</h2>
+
         <div id="olts">Loading...</div>
       </div>
 
@@ -66,7 +67,7 @@
           data.forEach((o) => {
             el.innerHTML += `
           <div class="border p-3 rounded mb-2">
-            <b>${o.olt_name}</b><br>
+            <b>olt name : ${o.olt_name}</b><br>
             ONU: ${o.onu_online}/${o.onu_total} | Alerts: ${o.active_alarms}
           </div>
         `;

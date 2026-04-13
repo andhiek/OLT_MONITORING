@@ -46,7 +46,6 @@ async def get_dashboard():
 
     for olt_id, data in STATE["olts"].items():
 
-        olt_name = data.get("olt_name", str(olt_id))
         onu_list = data.get("onu_list", [])
         alerts = data.get("alerts", [])
 
@@ -62,7 +61,6 @@ async def get_dashboard():
         # 🔥 Tambahin ini
         olt_list.append({
             "olt_id": str(olt_id),
-            "olt_name": olt_name,
             "onu_total": onu_total,
             "onu_online": onu_online,
             "active_alarms": len(alerts),
@@ -84,6 +82,7 @@ async def get_olts():
         result = []
 
         for olt_id, data in STATE["olts"].items():
+            olt_name = data.get("olt_name", str(olt_id))
             onu_list = data.get("onu_list", [])
             alerts = data.get("alerts", [])
 
@@ -92,6 +91,7 @@ async def get_olts():
 
             result.append({
                 "olt_id": str(olt_id),
+                "olt_name": olt_name,
                 "onu_total": len(onu_list),
                 "online": online,
                 "offline": offline,

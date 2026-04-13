@@ -24,7 +24,6 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    # preload dashboard html kecache
     asyncio.create_task(start_bot())  # 🔥 penting!
     
 @app.get("/dashboard")
