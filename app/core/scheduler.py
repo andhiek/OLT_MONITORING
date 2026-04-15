@@ -1,6 +1,7 @@
 # =========== scheduler.py ============
 
 import asyncio
+import os
 from datetime import datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -12,11 +13,12 @@ from app.services.topology_service import detect_root_cause
 from app.services.ticket_service import TicketService
 from app.services.alarm_correlation_service import AlarmCorrelationService
 from app.services.incident_correlation_service import IncidentCorrelationService
+from app.services.state_cache import STATE
 
 
 incident_service = IncidentCorrelationService()
 
-
+print("🔥 Scheduler running PID:", os.getpid())
 # ===============================
 # TELEGRAM FORMAT
 # ===============================
@@ -48,8 +50,10 @@ def format_telegram(alert, olt_name, ticket_id=None, resolved=None):
 # PROCESS PER OLT
 # ===============================
 async def process_olt(bot, olt):
+    print("PROCESS OLT:", olt.name, id(olt))
 
     service = MonitoringService(olt)
+    print("OLT ID:", olt.id)
 
     try:
         data = await service.get_status()
@@ -87,30 +91,41 @@ async def process_olt(bot, olt):
     # ===============================
     # 🔥 ALARM CORRELATION (WAJIB)
     # ===============================
-    alerts = AlarmCorrelationService.process(alerts)
+    
+    
 
     # ===============================
-    # 🔥 INCIDENT LAYER
+    # 🔥 INCIDENT LAYER (FINAL CLEAN)
     # ===============================
     incidents = incident_service.process(alerts)
 
+    if "incidents" not in STATE:
+        STATE["incidents"] = []
+
+    # hapus incident lama dari OLT ini
+    STATE["incidents"] = [
+        inc for inc in STATE["incidents"]
+        if inc.get("olt_id") != str(olt.id)
+    ]
+
+    # inject metadata + simpan
+    for inc in incidents:
+        inc["olt_id"] = str(olt.id)
+        inc["olt_name"] = olt.name
+
+    STATE["incidents"].extend(incidents)
 
     # ===============================
-    # 🚨 INCIDENT LOOP (DOWN ONLY)
+    # 🚨 INCIDENT LOOP
     # ===============================
     for incident in incidents:
-        
         try:
-        # semua logic incident kamu
-        
-    
 
             root = incident.get("root_alert")
             if not root:
                 continue
 
-            # hanya kirim incident baru
-            if not incident.get("is_new"):
+            if not incident.get("is_new") or incident.get("is_active") is False:
                 continue
 
             if root.get("status") != "DOWN":
@@ -126,55 +141,53 @@ async def process_olt(bot, olt):
                 continue
 
             print(f"🔥 INCIDENT NEW: OLT={olt.name} ROOT={device_id} impact={incident['impact_count']}")
+            
+            
 
             # =========================
             # CREATE TICKET
             # =========================
-            try :
-                result = await TicketService.create_ticket(
+            result = await TicketService.create_ticket(
+                olt,
+                onu_uuid,
+                root
+            )
+
+            if result:
+                ticket_id = result.get("ticket_id")
+                alarm_id = result.get("alarm_id")
+
+                await create_alarm(
                     olt,
                     onu_uuid,
-                    root
+                    root.get("event"),
+                    root.get("message"),
+                    alarm_id=alarm_id
                 )
+            else:
+                print("⚠️ Ticket duplicate")
+                ticket_id = "-"
+                alarm_id = f"INCIDENT-{olt.id}-{device_id}"
 
-                if result:
-                    ticket_id = result.get("ticket_id")
-                    alarm_id = result.get("alarm_id")
+            root["alarm_id"] = alarm_id
 
-                    await create_alarm(
-                        olt,
-                        onu_uuid,
-                        root.get("event"),
-                        root.get("message"),
-                        alarm_id=alarm_id
-                    )
-                else:
-                    print("⚠️ Ticket duplicate, fallback mode")
-                    ticket_id = "-"
-                    alarm_id = f"INCIDENT-{olt.id}-{device_id}"
-
-                # inject ke root
-                root["alarm_id"] = alarm_id
-            except Exception as e:
-                print("❌ CREATE TICKET ERROR:", e)
-                raise    
             # =========================
             # TELEGRAM
             # =========================
-            sample = ", ".join(map(str, incident["sample_devices"])) if incident["sample_devices"] else "-"
+            sample = ", ".join(map(str, incident.get("sample_devices", []))) or "-"
 
             text = f"""🚨 INCIDENT DETECTED
 
-        OLT     : {olt.name}
-        ROOT    : {device_id}
-        EVENT   : {root.get('event')}
+            OLT     : {olt.name}
+            ROOT    : {device_id}
+            EVENT   : {root.get('event')}
 
-        IMPACT  : {incident['impact_count']} ONU
-        Sample  : {sample}
+            IMPACT  : {incident['impact_count']} ONU
+            Sample  : {sample}
 
-        Time    : {datetime.now().strftime("%H:%M")}
-        Ticket  : #{ticket_id}
-        """
+            Time    : {datetime.now().strftime("%H:%M")}
+            Ticket  : #{ticket_id}
+            """
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -192,14 +205,15 @@ async def process_olt(bot, olt):
                 "alarm_id": alarm_id,
                 "ticket": ticket_id
             })
+
             await bot.send_message(
                 olt.client.telegram_chat_id,
                 text,
                 reply_markup=keyboard
             )
+
         except Exception as e:
             print("❌ INCIDENT ERROR:", e)
-
 
     # ===============================
     # 🔄 RECOVERY LOOP (UP ONLY)
@@ -254,6 +268,8 @@ async def process_olt(bot, olt):
             olt.client.telegram_chat_id,
             text
         )
+        
+        
 
 
 # ===============================
@@ -297,3 +313,9 @@ async def monitoring_loop(bot):
                         )
 
         await asyncio.sleep(30)
+        
+        
+'''
+👉 
+bikin /api/incidents versi PRO (dengan grouping + severity + aging time)
+'''

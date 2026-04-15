@@ -19,29 +19,39 @@
         <div class="bg-white p-4 rounded shadow">ONU Total: <b id="onu_total">0</b></div>
         <div class="bg-white p-4 rounded shadow">Online: <b id="onu_online">0</b></div>
         <div class="bg-white p-4 rounded shadow">Offline: <b id="onu_offline">0</b></div>
-        <div class="bg-white p-4 rounded shadow">Alerts: <b id="alarms">0</b></div>
+        <div class="bg-white p-4 rounded shadow">Active Alarms: <b id="alarms">0</b></div>
       </div>
 
-      <!-- OLT -->
+      <!-- OLT STATUS -->
       <div class="bg-white p-4 rounded shadow">
         <h2 class="font-bold mb-3">OLT Status</h2>
-
         <div id="olts">Loading...</div>
       </div>
 
-      <!-- ALERT -->
+      <!-- ALERTS -->
       <div class="bg-white p-4 rounded shadow">
         <h2 class="font-bold mb-3">🔥 Active Alerts</h2>
         <div id="alerts">Loading...</div>
+      </div>
+
+      <!-- INCIDENTS -->
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-bold mb-3">🚨 Incidents</h2>
+        <div id="incidents">Loading...</div>
       </div>
 
       <div class="text-sm text-gray-500">Last update: <span id="last_update">-</span></div>
     </div>
 
     <script>
+      const BASE_URL = "http://127.0.0.1:8000/api";
+
+      // =========================
+      // DASHBOARD
+      // =========================
       async function loadDashboard() {
         try {
-          const res = await fetch("http://127.0.0.1:8000/api/dashboard");
+          const res = await fetch(`${BASE_URL}/dashboard`);
           const data = await res.json();
 
           document.getElementById("onu_total").innerText = data.onu_total;
@@ -56,9 +66,12 @@
         }
       }
 
+      // =========================
+      // OLT
+      // =========================
       async function loadOlts() {
         try {
-          const res = await fetch("http://127.0.0.1:8000/api/olts");
+          const res = await fetch(`${BASE_URL}/olts`);
           const data = await res.json();
 
           const el = document.getElementById("olts");
@@ -66,45 +79,91 @@
 
           data.forEach((o) => {
             el.innerHTML += `
-          <div class="border p-3 rounded mb-2">
-            <b>olt name : ${o.olt_name}</b><br>
-            ONU: ${o.onu_online}/${o.onu_total} | Alerts: ${o.active_alarms}
-          </div>
-        `;
+              <div class="border p-3 rounded mb-2">
+                <b>${o.olt_name}</b><br>
+                ONU: ${o.online}/${o.onu_total} |
+                Offline: ${o.offline} |
+                Alerts: ${o.active_alarms}
+              </div>
+            `;
           });
         } catch (e) {
           console.error("OLT error:", e);
         }
       }
 
+      // =========================
+      // ALERTS (pakai STATE)
+      // =========================
       async function loadAlerts() {
         try {
-          const res = await fetch("http://127.0.0.1:8000/api/alerts");
+          const res = await fetch(`${BASE_URL}/dashboard`);
           const data = await res.json();
 
           const el = document.getElementById("alerts");
           el.innerHTML = "";
 
-          data.forEach((a) => {
-            const color = a.severity === "CRITICAL" ? "bg-red-100 border-red-400" : a.severity === "MAJOR" ? "bg-yellow-100 border-yellow-400" : "bg-green-100 border-green-400";
+          data.olts.forEach((olt) => {
+            if (!olt.active_alarms || olt.active_alarms === 0) return;
 
             el.innerHTML += `
-          <div class="p-3 rounded border ${color} mb-2">
-            <div class="font-bold">${a.event}</div>
-            <div>${a.message}</div>
-            <div class="text-xs text-gray-500">Device: ${a.device_id}</div>
-          </div>
-        `;
+              <div class="p-3 rounded border bg-yellow-100 mb-2">
+                <div class="font-bold">${olt.olt_name || olt.olt_id}</div>
+                <div>Active Alarms: ${olt.active_alarms}</div>
+                <div class="text-xs font-bold ${olt.health === "OK" ? "text-green-600" : "text-yellow-600"}">
+                Status: ${olt.health}
+              </div>
+              
+            `;
           });
         } catch (e) {
           console.error("Alerts error:", e);
         }
       }
 
+      // =========================
+      // INCIDENTS 🔥
+      // =========================
+      async function loadIncidents() {
+        try {
+          const res = await fetch(`${BASE_URL}/incidents`);
+          const data = await res.json();
+
+          const el = document.getElementById("incidents");
+          el.innerHTML = "";
+
+          if (!data.length) {
+            el.innerHTML = "<div class='text-gray-500'>No active incidents</div>";
+            return;
+          }
+
+          data.forEach((i) => {
+            const color = i.status === "OPEN" ? "bg-red-100 border-red-400" : "bg-green-100 border-green-400";
+
+            el.innerHTML += `
+              <div class="p-3 rounded border ${color} mb-2">
+                <div class="font-bold">${i.event}</div>
+                <div>OLT: ${i.olt}</div>
+                <div>Root: ${i.root_device}</div>
+                <div>Impact: ${i.impact} ONU</div>
+                <div>Status: ${i.status}</div>
+                <div class="text-xs text-gray-500">${i.time}</div>
+              </div>
+            `;
+          });
+        } catch (e) {
+          console.error("Incidents error:", e);
+        }
+      }
+
+      // =========================
+      // REFRESH LOOP
+      // =========================
       function refreshAll() {
         loadDashboard();
         loadOlts();
         loadAlerts();
+        loadIncidents();
       }
 
       setInterval(refreshAll, 5000);

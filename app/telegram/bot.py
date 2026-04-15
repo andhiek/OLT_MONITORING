@@ -9,6 +9,9 @@ from app.telegram.handlers import router
 from app.core.scheduler import monitoring_loop
 
 
+bot = Bot(token=str(BOT_TOKEN))
+
+
 async def start_bot():
     await _run()
 
@@ -31,7 +34,6 @@ async def _run():
     if BOT_TOKEN is None:
         raise ValueError("BOT_TOKEN is not set")
 
-    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
     dp.include_router(router)

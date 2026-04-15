@@ -12,12 +12,15 @@ from app.snmp.zte_c320 import ZTEC320
 from app.services.alarm import AlarmService
 from app.services.alarm_flap_guard import AlarmFlapGuard
 from app.services.alarm_correlation_service import AlarmCorrelationService
+from app.services.state_cache import process_alerts
 from app.services.ticket_service import TicketService
+from app.services.state_cache import get_active_incidents
+
 
 from app.core.delta import DeltaProcessor
 
 load_dotenv()
-
+print("🔥 ACTIVE INCIDENTS:", get_active_incidents())
 
 class MonitoringService:
     _simulators = {}
@@ -115,6 +118,7 @@ class MonitoringService:
             # 5. CORRELATION
             # =============================
             correlated_alerts = AlarmCorrelationService.process(stable_alerts)
+            process_alerts(correlated_alerts)
 
             ''' # =============================
             # 6. CREATE TICKETS 🔥
@@ -163,7 +167,17 @@ class MonitoringService:
         except Exception as e:
             print("❌ Monitoring error:", e)
 
-            # 🔥 tetap update cache walaupun error
-            update_olt_state(self.olt.id, result)
+            fallback = {
+                "olt_id": self.olt.id,
+                "olt_status": {},
+                "onu_list": [],
+                "alerts": []
+            }
 
-            return result
+            update_olt_state(self.olt.id, fallback)
+
+            return fallback
+        
+        
+        
+        
